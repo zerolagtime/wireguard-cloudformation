@@ -9,6 +9,10 @@
         "MyWireguardEIP" : {
             "Type" : "AWS::EC2::EIP",
             "Properties" : {
+               "Tags": [
+                  { "Key": "project", "Value": "wireguard" },
+                  { "Key": "Name", "Value": "wg1-eip" }
+               ]
             }
            }
     },

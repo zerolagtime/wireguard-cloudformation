@@ -1,6 +1,6 @@
 {
     "AWSTemplateFormatVersion": "2010-09-09",
-    "Description": "Set up a wireguard VPN",
+    "Description": "Set up a wireguard VPN.",
     "Metadata": {},
     "Parameters": {
         "LatestAmiId": {
@@ -9,7 +9,7 @@
             "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
         },
         "InstanceType": {
-            "Default": "t3a.nano",
+            "Default": "t2.micro",
             "Description": "Instance type",
             "Type": "String"
         },
@@ -249,6 +249,10 @@
                     {
                         "Ref": "VpnSecurityGroup"
                     }
+                ],
+                "Tags": [
+                    { "Key": "project", "Value": "wireguard" },
+                    { "Key": "Name", "Value": "wg1" }
                 ]
             }
         },
