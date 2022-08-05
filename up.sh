@@ -43,7 +43,7 @@ else
    if [ $err -eq 0 ]; then
       wait_for_stack wg1-eip UPDATE || die "Stack wg1-eip failed to update"
    elif [ $err -eq 255 ]; then
-      echo "[$(date)] [INFO] No updates needed to wg1-eip stack" 1>&2 
+      echo "[$(date)] [INFO] [wg-eip1] No updates needed to stack" 1>&2 
    else
       die "stack wg1-eip never finished updating"
    fi
@@ -60,7 +60,7 @@ else
    if [ $err -eq 0 ]; then
       wait_for_stack wg1 UPDATE || (die "Stack wg1 failed to update")
    elif [ $err -eq 255 ]; then
-      echo "[$(date)] [INFO] No updates needed to wg1 stack" 1>&2 
+      echo "[$(date)] [INFO] [wg1] No updates needed to wg1 stack" 1>&2 
    else
       die "stack wg1 never finished updating"
    fi
