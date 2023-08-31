@@ -8,6 +8,9 @@ You will need the following:
 * In the AWS console, launch the `wireguard-eip-master.json` template first. It will export the elastic IP used by the `wireguard-master.json`template (so you can conveniently use the same public IP).  The true/false option allows one to stand up the `wireguard-master.json` with out the export from the EIP, if undesired.
 * Your VPC's default security group ID (auto-populated in Cloudformation dropdown)
 
+Permission to perform the actions in the Stack, via the AdministratorAccess
+built-in policy.
+
 Steps:
 
 1. Download the [Wireguard client](https://www.wireguard.com/install/) for your platform

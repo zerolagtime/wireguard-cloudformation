@@ -13,7 +13,7 @@ function wait_for_stack() {
         echo "[$(date)] [$stack] stack $stack is already gone.  Going to next step."
         status="DELETE_COMPLETE"
      elif [ -n "$status" -a "$status" != "DELETE_COMPLETE" ]; then 
-        echo "[$(date)] [$stack] waiting for stack to do down.  Currently $status"
+        echo "[$(date)] [$stack] waiting for stack to go down.  Currently $status"
         sleep 5
      fi
    done
