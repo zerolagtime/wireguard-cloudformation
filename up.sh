@@ -53,7 +53,7 @@ else
 fi
 get_config=0
 default_sg=$(aws ec2 describe-security-groups | jq -r '.SecurityGroups[] | select(.GroupName=="default") | .GroupId ' | head -1)
-if is_deployed wg1]; then
+if is_deployed wg1 ; then
    aws cloudformation update-stack --stack-name wg1 --template-body file://wireguard-master.json --parameters ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg --capabilities CAPABILITY_IAM
    err=$?
    if [ $err -eq 0 ]; then
@@ -71,8 +71,8 @@ else
 fi
 if [ $get_config -eq 1 ]; then
    conf=aws_$(date +%Y%m%d).conf
-   triesLeft=10
-   delays=10
+   triesLeft=15
+   delays=15
    while [ $triesLeft -gt 0 ]; do
       printf "Waiting for secure configuration to post. Tries left: %2d                  " $triesLeft
       aws ssm get-parameter --name "ClientConfig" --with-decryption | jq -r '.Parameter.Value' > $conf  2>/dev/null
