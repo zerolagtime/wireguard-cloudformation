@@ -5,7 +5,7 @@
     "Parameters": {
         "LatestAmiId": {
             "Description": "Grab the latest AL2 AMI",
-            "Default": "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2",
+            "Default": "/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64",
             "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
         },
         "InstanceType": {
@@ -69,13 +69,11 @@
                 "AWS::CloudFormation::Init": {
                     "config": {
                         "packages": {
-                            "rpm": {
-                                "epel": "https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm"
-                            },
-                            "yum": {
+                            "dnf": {
                                 "wireguard-dkms": [],
                                 "wireguard-tools": [],
-                                "kernel-devel": []
+                                "kernel-devel": [],
+                                "aws-cfn-bootstrap": []
                             }
                         },
                         "files": {
@@ -192,11 +190,16 @@
                             "",
                             [
                                 "#!/bin/bash -xe\n",
-                                "yum update -y\n",
-                                "# Add wireguard repo\n",
-                                "curl -Lo /etc/yum.repos.d/wireguard.repo https://copr.fedorainfracloud.org/coprs/jdoss/wireguard/repo/epel-7/jdoss-wireguard-epel-7.repo\n",
+                                "dnf update -y\n",
+                                "# Install aws-cfn-bootstrap\n",
+                                "dnf install -y aws-cfn-bootstrap wireguard-tools kernel-devel\n",
+                                "# Confirm cfn-init installation\n",
+                                "if [ ! -f /usr/bin/cfn-init ]; then\n",
+                                "  echo 'cfn-init not installed!';\n",
+                                "  exit 1;\n",
+                                "fi\n",                                
                                 "# Install the files and packages from the metadata\n",
-                                "/opt/aws/bin/cfn-init -v ",
+                                "/usr/bin/cfn-init -v ",
                                 "         --stack ",
                                 {
                                     "Ref": "AWS::StackName"
