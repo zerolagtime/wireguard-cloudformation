@@ -71,7 +71,7 @@ else
 fi
 if [ $get_config -eq 1 ]; then
    conf=aws_$(date +%Y%m%d).conf
-   triesLeft=15
+   triesLeft=25
    delays=15
    while [ $triesLeft -gt 0 ]; do
       printf "Waiting for secure configuration to post. Tries left: %2d                  " $triesLeft
