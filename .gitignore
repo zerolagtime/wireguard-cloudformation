@@ -1,2 +1,3 @@
 *.conf
 venv
+.venv
