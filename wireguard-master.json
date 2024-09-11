@@ -156,7 +156,7 @@
                                             "[Service]\n",
                                             "Type=oneshot\n",
                                             "RemainAfterExit=yes\n",
-                                            "ExecStartPre=/bin/sleep 60\n",
+                                            "ExecStartPre=/bin/sleep 1\n",
                                             "ExecStart=/usr/bin/wg-quick up %i\n",
                                             "ExecStop=/usr/bin/wg-quick down %i\n",
                                             "Environment=WG_ENDPOINT_RESOLUTION_RETRIES=infinity\n",
@@ -169,8 +169,104 @@
                                 "mode": "000644",
                                 "owner": "root",
                                 "group": "root"
+                            },
+                            "/opt/aws/amazon-cloudwatch-agent/bin/config.json": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "{\n",
+                                            "  \"agent\": {\n",
+                                            "    \"metrics_collection_interval\": 60,\n",
+                                            "    \"run_as_user\": \"root\"\n",
+                                            "  },\n",
+                                            "  \"logs\": {\n",
+                                            "    \"logs_collected\": {\n",
+                                            "      \"journald\": {\n",
+                                            "        \"enabled\": true,\n",
+                                            "        \"max_chunk_size\": 1048576,\n",
+                                            "        \"max_number_of_chunks\": 10\n",
+                                            "      }\n",
+                                            "    },\n",
+                                            "    \"log_stream_name\": \"{instance_id}/journald\",\n",
+                                            "    \"log_group_name\": \"Journald\"\n",
+                                            "  }\n",
+                                            "  \"metrics\": {\n",
+                                            "    \"metrics_collected\": {\n",
+                                            "      \"net\": {\n",
+                                            "        \"measurement\": [\"bytes_in\", \"bytes_out\"],\n",
+                                            "        \"metrics_collection_interval\": 60,\n",
+                                            "        \"resources\": [\"wg0\"]\n",
+                                            "      }\n",
+                                            "      \"plaintext\": {\n",
+                                            "        \"measurement\": [\n",
+                                            "            \"LastHandshake\",\n",
+                                            "            \"ReceivedBytes\",\n",
+                                            "            \"TransmittedBytes\"\n",
+                                            "        ],\n",
+                                            "        \"metrics_file\": \"/var/log/wg_metrics.txt\"",
+                                            "      }\n",
+                                            "    },\n",
+                                            "    \"append_dimensions\": {\n",
+                                            "      \"InstanceId\": \"${aws:InstanceId}\",\n",
+                                            "      \"InstanceType\": \"${aws:InstanceType}\"\n",
+                                            "    }\n",
+                                            "  }\n",
+                                            "}\n"
+                                        ]
+                                    ]
+                                },
+                                "mode": "000644",
+                                "owner": "root",
+                                "group": "root"
+                            },
+                            "/usr/local/bin/wg-cwa-metrics.py": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "#!/bin/env python3\n",
+                                            "import subprocess, time\n",
+                                            "\n",
+                                            "METRICS_FILE = '/var/log/wg_metrics.txt'  # Change to your desired file path\n",
+                                            "\n",
+                                            "def get_wireguard_metrics():\n",
+                                            "    result = subprocess.run(['wg', 'show', 'all', 'dump'], stdout=subprocess.PIPE, text=True)\n",
+                                            "    metrics = []\n",
+                                            "\n",
+                                            "    for line in result.stdout.strip().split('\n'):\n",
+                                            "        columns = line.split('\t')\n",
+                                            "        if len(columns) >= 5:\n",
+                                            "            interface, peer_id, last_handshake, received_bytes, transmitted_bytes = columns[:5]\n",
+                                            "            metrics.extend([\n",
+                                            "                f\"WireGuard.{interface}.{peer_id[:16]}.LastHandshake {last_handshake} {int(time.time())}\n\",\n",
+                                            "                f\"WireGuard.{interface}.{peer_id[:16]}.ReceivedBytes {received_bytes} {int(time.time())}\n\",\n",
+                                            "                f\"WireGuard.{interface}.{peer_id[:16]}.TransmittedBytes {transmitted_bytes} {int(time.time())}\n\"\n",
+                                            "            ])\n",
+                                            "    return metrics\n",
+                                            "\n",
+                                            "def write_metrics_to_file(metrics):\n",
+                                            "    with open(METRICS_FILE, 'w') as f:\n",
+                                            "        f.writelines(metrics)\n",
+                                            "\n",
+                                            "if __name__ == \"__main__\":\n",
+                                            "    write_metrics_to_file(get_wireguard_metrics())\n"                                            
+                                        ]
+                                    ]
+                                },
+                                "mode": "000700",
+                                "owner": "root",
+                                "group": "root"
                             }
                         }
+                    },
+                    "commands": {
+                      "01_start_agent": {
+                        "command": "systemctl restart amazon-cloudwatch-agent"
+                      }, 
+                      "02_start_wg_cron": {
+                        "command": "echo '* * * * * /usr/bin/python3 /usr/local/bin/wg-cwa-metrics.py >> /var/log/wg-cwa-metrics.log 2>&1' | crontab -"
+                      }
                     }
                 }
             },
@@ -192,12 +288,45 @@
                                 "#!/bin/bash -xe\n",
                                 "dnf update -y\n",
                                 "# Install aws-cfn-bootstrap\n",
-                                "dnf install -y aws-cfn-bootstrap wireguard-tools kernel-devel\n",
+                                "time dnf install -qqq -y aws-cfn-bootstrap wireguard-tools kernel-devel rsyslog amazon-cloudwatch-agent\n",
                                 "# Confirm cfn-init installation\n",
                                 "if [ ! -f /usr/bin/cfn-init ]; then\n",
                                 "  echo 'cfn-init not installed!';\n",
                                 "  exit 1;\n",
-                                "fi\n",                                
+                                "fi\n",
+                                "\n",
+                                "# Configure rsyslog to receive logs from journald\n",
+                                "echo 'module(load=\"imjournal\" stateFile=\"imjournal.state\")' >> /etc/rsyslog.conf\n",
+                                "echo '*.* /var/log/syslog' >> /etc/rsyslog.conf\n",
+                                "systemctl restart rsyslog\n",
+                                "\n",
+                                "# Configure CloudWatch Agent\n",
+                                "cat > /opt/aws/amazon-cloudwatch-agent/bin/config.json << EOL\n",
+                                "{\n",
+                                "  \"agent\": {\n",
+                                "    \"metrics_collection_interval\": 60,\n",
+                                "    \"run_as_user\": \"root\"\n",
+                                "  },\n",
+                                "  \"logs\": {\n",
+                                "    \"logs_collected\": {\n",
+                                "      \"files\": {\n",
+                                "        \"collect_list\": [\n",
+                                "          {\n",
+                                "            \"file_path\": \"/var/log/syslog\",\n",
+                                "            \"log_group_name\": \"Syslog\",\n",
+                                "            \"log_stream_name\": \"{instance_id}\"\n",
+                                "          }\n",
+                                "        ]\n",
+                                "      }\n",
+                                "    }\n",
+                                "  }\n",
+                                "}\n",
+                                "EOL\n",
+                                "\n",
+                                "# Start CloudWatch Agent\n",
+                                "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -s -c file:/opt/aws/amazon-cloudwatch-agent/bin/config.json\n",
+                                "\n",
+                        
                                 "# Install the files and packages from the metadata\n",
                                 "/usr/bin/cfn-init -v ",
                                 "         --stack ",
@@ -322,6 +451,26 @@
                                 "kms:Encrypt"
                             ],
                             "Resource": "*"
+                        },
+                        {
+                            "Effect": "Allow",
+                            "Action": [
+                                "logs:CreateLogGroup",
+                                "logs:CreateLogStream",
+                                "logs:PutLogEvents"
+                            ],
+                            "Resource": [
+                                {
+                                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:Syslog:*"
+                                }
+                            ]
+                        },
+                        {
+                            "Effect": "Allow",
+                            "Action": [
+                                "cloudwatch:PutMetricData"
+                            ],
+                            "Resource": "*"
                         }
                     ]
                 },
@@ -343,6 +492,58 @@
                         "Ref": "WgEc2IamRole"
                     }
                 ]
+            }
+        },
+        "SyslogLogGroup": {
+            "Type": "AWS::Logs::LogGroup",
+            "Properties": {
+                "LogGroupName": "Syslog",
+                "RetentionInDays": 3
+            }
+        },
+        "EC2InstanceProfile": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+              "Roles": [
+                { "Ref": "EC2Role" }
+              ]
+            }
+          },
+          "EC2Role": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+              "AssumeRolePolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Principal": {
+                      "Service": "ec2.amazonaws.com"
+                    },
+                    "Action": "sts:AssumeRole"
+                  }
+                ]
+              },
+              "Policies": [
+                {
+                  "PolicyName": "CloudWatchAgentPolicy",
+                  "PolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                      {
+                        "Effect": "Allow",
+                        "Action": [
+                          "cloudwatch:PutMetricData",
+                          "logs:CreateLogGroup",
+                          "logs:CreateLogStream",
+                          "logs:PutLogEvents"
+                        ],
+                        "Resource": "*"
+                      }
+                    ]
+                  }
+                }
+              ]
             }
         }
     },
