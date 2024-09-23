@@ -70,10 +70,12 @@
                     "config": {
                         "packages": {
                             "dnf": {
-                                "wireguard-dkms": [],
                                 "wireguard-tools": [],
                                 "kernel-devel": [],
-                                "aws-cfn-bootstrap": []
+                                "aws-cfn-bootstrap": [],
+                                "nftables": [],
+                                "iptables-nft": [],
+                                "amazon-cloudwatch-agent": []
                             }
                         },
                         "files": {
@@ -88,9 +90,9 @@
                                                 "Ref": "ServerTunnelSubnet"
                                             },
                                             "\n",
+                                            "PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o enX0 -j MASQUERADE\n",
+                                            "PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o enX0 -j MASQUERADE\n",
                                             "ListenPort = 51820\n",
-                                            "PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE\n",
-                                            "PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE\n",
                                             "PrivateKey = fakeServerPrivateKey\n",
                                             "SaveConfig = true\n",
                                             "\n",
@@ -137,40 +139,7 @@
                                 "owner": "root",
                                 "group": "root"
                             },
-                            "/usr/lib/systemd/system/wg-quick@.service": {
-                                "content": {
-                                    "Fn::Join": [
-                                        "",
-                                        [
-                                            "[Unit]\n",
-                                            "Description=WireGuard via wg-quick(8) for %I\n",
-                                            "After=network-online.target nss-lookup.target\n",
-                                            "Wants=network-online.target nss-lookup.target\n",
-                                            "Documentation=man:wg-quick(8)\n",
-                                            "Documentation=man:wg(8)\n",
-                                            "Documentation=https://www.wireguard.com/\n",
-                                            "Documentation=https://www.wireguard.com/quickstart/\n",
-                                            "Documentation=https://git.zx2c4.com/WireGuard/about/src/tools/man/wg-quick.8\n",
-                                            "Documentation=https://git.zx2c4.com/WireGuard/about/src/tools/man/wg.8\n",
-                                            "\n",
-                                            "[Service]\n",
-                                            "Type=oneshot\n",
-                                            "RemainAfterExit=yes\n",
-                                            "ExecStartPre=/bin/sleep 1\n",
-                                            "ExecStart=/usr/bin/wg-quick up %i\n",
-                                            "ExecStop=/usr/bin/wg-quick down %i\n",
-                                            "Environment=WG_ENDPOINT_RESOLUTION_RETRIES=infinity\n",
-                                            "\n",
-                                            "[Install]\n",
-                                            "WantedBy=multi-user.target\n"
-                                        ]
-                                    ]
-                                },
-                                "mode": "000644",
-                                "owner": "root",
-                                "group": "root"
-                            },
-                            "/opt/aws/amazon-cloudwatch-agent/bin/config.json": {
+                            "/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/wg.json": {
                                 "content": {
                                     "Fn::Join": [
                                         "",
@@ -182,29 +151,43 @@
                                             "  },\n",
                                             "  \"logs\": {\n",
                                             "    \"logs_collected\": {\n",
-                                            "      \"journald\": {\n",
-                                            "        \"enabled\": true,\n",
-                                            "        \"max_chunk_size\": 1048576,\n",
-                                            "        \"max_number_of_chunks\": 10\n",
+                                            "      \"files\": {\n",
+                                            "        \"collect_list\": [\n",
+                                            "          {\n",
+                                            "            \"file_path\": \"/var/log/syslog\",\n",
+                                            "            \"log_stream_name\": \"${aws:InstanceId}/syslog\",\n",
+                                            "            \"log_group_name\": \"Journald\"\n",
+                                            "          },\n",
+                                            "          {\n",
+                                            "            \"file_path\": \"/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log\",\n",
+                                            "            \"log_group_name\": \"Syslog\",\n",
+                                            "            \"log_stream_name\": \"${aws:InstanceId}/syslog\",\n",
+                                            "            \"timezone\": \"UTC\"\n",
+                                            "          }\n",
+                                            "        ]\n",
                                             "      }\n",
-                                            "    },\n",
-                                            "    \"log_stream_name\": \"{instance_id}/journald\",\n",
-                                            "    \"log_group_name\": \"Journald\"\n",
-                                            "  }\n",
+                                            "    }\n",
+                                            "  },\n",
                                             "  \"metrics\": {\n",
+                                            "    \"namespace\": \"Production/WireGuard\",\n",
                                             "    \"metrics_collected\": {\n",
                                             "      \"net\": {\n",
-                                            "        \"measurement\": [\"bytes_in\", \"bytes_out\"],\n",
+                                            "        \"measurement\": [\n",
+                                            "          \"bytes_sent\",\n",
+                                            "          \"bytes_recv\"\n",
+                                            "        ],\n",
                                             "        \"metrics_collection_interval\": 60,\n",
-                                            "        \"resources\": [\"wg0\"]\n",
-                                            "      }\n",
+                                            "        \"resources\": [\n",
+                                            "          \"wg0\"\n",
+                                            "        ]\n",
+                                            "      },\n",
                                             "      \"plaintext\": {\n",
                                             "        \"measurement\": [\n",
-                                            "            \"LastHandshake\",\n",
-                                            "            \"ReceivedBytes\",\n",
-                                            "            \"TransmittedBytes\"\n",
+                                            "          \"LastHandshake\",\n",
+                                            "          \"ReceivedBytes\",\n",
+                                            "          \"TransmittedBytes\"\n",
                                             "        ],\n",
-                                            "        \"metrics_file\": \"/var/log/wg_metrics.txt\"",
+                                            "        \"metrics_file\": \"/var/log/wg_metrics.txt\"\n",
                                             "      }\n",
                                             "    },\n",
                                             "    \"append_dimensions\": {\n",
@@ -257,6 +240,50 @@
                                 "mode": "000700",
                                 "owner": "root",
                                 "group": "root"
+                            },
+                            "/etc/nftables-ignore.conf": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "table inet filter {\n",
+                                            "    chain input {\n",
+                                            "        type filter hook input priority 0; policy drop;  # Default policy to drop\n",
+                                            "        # Allow established and related connections\n",
+                                            "        ct state established,related accept\n",
+                                            "        # Allow localhost traffic\n",
+                                            "        ip saddr 127.0.0.1 accept\n",
+                                            "        # Log all incoming traffic\n",
+                                            "        log prefix \"IN:\" group 0\n",
+                                            "        # Allow WireGuard traffic on UDP port 51820\n",
+                                            "        udp dport 51820 accept\n",
+                                            "        # Allow ICMP (ping) for troubleshooting\n",
+                                            "        icmp type echo-request accept\n",
+                                            "        icmp type echo-reply accept\n",
+                                            "        # Log and drop all other packets\n",
+                                            "        log prefix \"DROP: \" drop\n",
+                                            "        # Reject all other connections with an ICMP port-unreachable message\n",
+                                            "        reject with icmp type port-unreachable\n",
+                                            "    }\n",
+                                            "    chain forward {\n",
+                                            "        type filter hook forward priority 0; policy drop;  # Default policy to drop\n",
+                                            "        # Allow forwarding of WireGuard packets\n",
+                                            "        iifname \"wg0\" accept\n",
+                                            "        oifname \"wg0\" accept\n",
+                                            "    }\n",
+                                            "    chain output {\n",
+                                            "        type filter hook output priority 0; policy accept;  # Allow all outgoing connections by default\n",
+                                            "        # Log all outgoing traffic\n",
+                                            "        log prefix \"OUT:\" group 0\n",
+                                            "    }\n",
+                                            "}\n"                                            
+                                        ]
+                                    ]
+
+                                },
+                                "mode": "000600",
+                                "owner": "root",
+                                "group": "root"
                             }
                         }
                     },
@@ -266,6 +293,12 @@
                       }, 
                       "02_start_wg_cron": {
                         "command": "echo '* * * * * /usr/bin/python3 /usr/local/bin/wg-cwa-metrics.py >> /var/log/wg-cwa-metrics.log 2>&1' | crontab -"
+                      },
+                      "03_nftables": {
+                        "command": "systemctl enable --now nftables"
+                      },
+                      "04_wg_service": {
+                        "command": "systemctl enable --now wg-quick@wg0"
                       }
                     }
                 }
@@ -285,13 +318,14 @@
                         "Fn::Join": [
                             "",
                             [
-                                "#!/bin/bash -xe\n",
-                                "dnf update -y\n",
+                                "#!/bin/bash -e\n",
+                                "echo \"INFO: Getting system updates\"\n",
+                                "dnf update -y -qq\n",
                                 "# Install aws-cfn-bootstrap\n",
-                                "time dnf install -qqq -y aws-cfn-bootstrap wireguard-tools kernel-devel rsyslog amazon-cloudwatch-agent\n",
+                                "time dnf install -qqq -y aws-cfn-bootstrap wireguard-tools iptables-nft kernel-devel rsyslog amazon-cloudwatch-agent\n",
                                 "# Confirm cfn-init installation\n",
                                 "if [ ! -f /usr/bin/cfn-init ]; then\n",
-                                "  echo 'cfn-init not installed!';\n",
+                                "  echo 'ERROR: cfn-init not installed!';\n",
                                 "  exit 1;\n",
                                 "fi\n",
                                 "\n",
@@ -339,9 +373,11 @@
                                     "Ref": "AWS::Region"
                                 },
                                 "\n",
-                                "echo \"net.ipv4.ip_forward = 1\" > /etc/sysctl.conf\n",
+                                "echo \"INFO: Enabling IPv4/IPv4 forwarding\"\n",
+                                "echo \"net.ipv4.ip_forward = 1\" >> /etc/sysctl.conf\n",
                                 "echo \"net.ipv6.conf.all.forwarding = 1\" >> /etc/sysctl.conf\n",
-                                "# Generate keys and put them in configs\n",
+                                "sysctl -p\n",
+                                "echo \"INFO: Generating keys and puting them in configs\"\n",
                                 "SERVER_PRIVATE_KEY=$(wg genkey)\n",
                                 "SERVER_PUBLIC_KEY=$(echo $SERVER_PRIVATE_KEY | wg pubkey)\n",
                                 "sed -i \"s|fakeServerPrivateKey|$SERVER_PRIVATE_KEY|\" /etc/wireguard/wg0.conf\n",
@@ -351,6 +387,7 @@
                                 "sed -i \"s|fakePeerPublicKey|$CLIENT_PUBLIC_KEY|\" /etc/wireguard/wg0.conf\n",
                                 "sed -i \"s|fakePeerPrivateKey|$CLIENT_PRIVATE_KEY|\" /tmp/wg0-client.conf\n",
                                 "\n",
+                                "echo \"INFO: Creating the AWS Parameter alias/aws/ssm\"\n",
                                 "aws ssm put-parameter",
                                 "    --name \"ClientConfig\"",
                                 "    --type \"SecureString\"",
@@ -361,12 +398,13 @@
                                     "Ref": "AWS::Region"
                                 },
                                 "    --value \"$(cat /tmp/wg0-client.conf)\" \n",
-                                "# Enable wireguard on restart\n",
+                                "echo \"INFO: Enabling wireguard on restart\"\n",
                                 "sudo systemctl enable wg-quick@wg0.service\n",
+                                "echo \"INFO: Deleting client WireGuard keys from the system\"\n",
                                 "# Erase init log to remove key, may need to comment out to trouble shoot\n",
                                 "rm -f /tmp/wg0-client.conf\n",
                                 "cat /dev/null > /var/log/cloud-init-output.log\n",
-                                "# Reboot needed to force kernel header to take effect\n",
+                                "echo \"INFO: Reboot needed to force kernel header to take effect\"\n",
                                 "reboot\n"
                             ]
                         ]
@@ -462,6 +500,9 @@
                             "Resource": [
                                 {
                                     "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:Syslog:*"
+                                },
+                                {
+                                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:Journald:*"
                                 }
                             ]
                         },
@@ -492,6 +533,13 @@
                         "Ref": "WgEc2IamRole"
                     }
                 ]
+            }
+        },
+        "JournaldLogGroup": {
+            "Type": "AWS::Logs::LogGroup",
+            "Properties": {
+                "LogGroupName": "Journald",
+                "RetentionInDays": 3
             }
         },
         "SyslogLogGroup": {
