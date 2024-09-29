@@ -417,7 +417,7 @@
                                 "        \"collect_list\": [\n",
                                 "          {\n",
                                 "            \"file_path\": \"/var/log/syslog\",\n",
-                                "            \"log_group_name\": \"Syslog\",\n",
+                                "            \"log_group_name\": \"WgSyslog\",\n",
                                 "            \"log_stream_name\": \"{instance_id}\"\n",
                                 "          }\n",
                                 "        ]\n",
@@ -569,10 +569,7 @@
                             ],
                             "Resource": [
                                 {
-                                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:Syslog:*"
-                                },
-                                {
-                                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:Journald:*"
+                                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:WgSyslog:*"
                                 }
                             ]
                         },
@@ -605,17 +602,10 @@
                 ]
             }
         },
-        "JournaldLogGroup": {
-            "Type": "AWS::Logs::LogGroup",
-            "Properties": {
-                "LogGroupName": "Journald",
-                "RetentionInDays": 3
-            }
-        },
         "SyslogLogGroup": {
             "Type": "AWS::Logs::LogGroup",
             "Properties": {
-                "LogGroupName": "Syslog",
+                "LogGroupName": "WgSyslog",
                 "RetentionInDays": 3
             }
         },
