@@ -351,6 +351,43 @@
                                 "mode": "000600",
                                 "owner": "root",
                                 "group": "root"
+                            },
+                            "/etc/systemd/system/wg_metrics.service": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "[Unit]\n",
+                                            "Description=WireGuard Metrics\n\n",
+                                            "[Service]\n",
+                                            "ExecStart=/usr/bin/python3 /usr/local/bin/wireguard-cloudwatch-metrics.py\n",
+                                            "WorkingDirectory=/root\n",
+                                            "StandardOutput=journal\n",
+                                            "StandardError=journal\n",
+                                            "User=root\n",
+                                            "Group=root\n\n",
+                                            "[Install]\n",
+                                            "WantedBy=multi-user.target\n"
+                                        ]
+                                    ]
+                                }
+                            },
+                            "/etc/systemd/system/wg_metrics.timer": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "[Unit]\n",
+                                            "Description=WireGuard Metric Timer\n\n",
+                                            "[Timer]\n",
+                                            "OnActiveSec=1min\n",
+                                            "OnUnitActiveSec=1min\n",
+                                            "Unit=wg_metrics.service\n\n",
+                                            "[Install]\n",
+                                            "WantedBy=timers.target\n"
+                                        ]
+                                    ]
+                                }
                             }
                         }
                     },
@@ -358,11 +395,11 @@
                       "01_start_agent": {
                         "command": "systemctl restart amazon-cloudwatch-agent"
                       }, 
-                      "02_start_wg_cron": {
-                        "command": "echo '* * * * * /usr/bin/python3 /usr/local/bin/ireguard-cloudwatch-metrics.py' | crontab -"
+                      "02_enable_wg_service": {
+                        "command": "systemctl enable wg_metrics.service"
                       },
-                      "03_nftables": {
-                        "command": "systemctl enable --now nftables"
+                      "03_enable_wg_timer": {
+                        "command": "systemctl enable --now wg_metrics.timer"
                       },
                       "04_wg_service": {
                         "command": "systemctl enable --now wg-quick@wg0"
