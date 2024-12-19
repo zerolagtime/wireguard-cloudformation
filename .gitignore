@@ -1,3 +1,4 @@
 *.conf
 venv
 .venv
+keys/
