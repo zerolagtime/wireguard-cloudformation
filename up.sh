@@ -63,12 +63,16 @@ is_valid_json "$here/wireguard-eip-master.json"
 output=$(is_deployed wg1-eip)
 if [ $? -eq 1 ]; then
    aws cloudformation create-stack --stack-name wg1-eip --template-body file://${here}/wireguard-eip-master.json || die "stack wg1-eip could not deploy"
-   wait_for_stack wg1-eip  || die "Stack wg1-eip failed to deploy"
+   if ! wait_for_stack wg1-eip; then
+      die "Stack wg1-eip failed to deploy"
+   fi
 else
    aws cloudformation update-stack --stack-name wg1-eip --template-body file://${here}/wireguard-eip-master.json 
    err=$?
    if [ $err -eq 0 ]; then
-      wait_for_stack wg1-eip UPDATE || die "Stack wg1-eip failed to update"
+      if ! wait_for_stack wg1-eip UPDATE; then
+         die "Stack wg1-eip failed to update"
+      fi
    elif [ $err -eq 255 ]; then
       echo "[$(date)] [INFO] [wg-eip1] No updates needed to stack" 1>&2 
    else
@@ -81,21 +85,30 @@ if is_deployed wg1 ; then
    aws cloudformation update-stack --stack-name wg1 --template-body file://${here}/wireguard-master.json --parameters ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg --capabilities CAPABILITY_IAM
    err=$?
    if [ $err -eq 0 ]; then
-      wait_for_stack wg1 UPDATE || (die "Stack wg1 failed to update")
+      if ! wait_for_stack wg1 UPDATE; then
+         die "Stack wg1 failed to update"
+      fi
    elif [ $err -eq 255 ]; then
       echo "[$(date)] [INFO] [wg1] No updates needed to wg1 stack" 1>&2 
    else
       die "stack wg1 never finished updating"
    fi
-   wait_for_stack wg1 UPDATE || die "Stack wg1 failed to update"
+   if ! wait_for_stack wg1 UPDATE; then 
+      die "Stack wg1 failed to update"
+   fi
 else
    aws cloudformation create-stack --stack-name wg1 --template-body file://${here}/wireguard-master.json --parameters ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg --capabilities CAPABILITY_IAM
-   wait_for_stack wg1 || ($here/down.sh; die "Stack wg1 did not come up")
-   get_config=1
+   if ! wait_for_stack wg1; then
+      $here/down.sh; 
+      die "Stack wg1 did not come up"
+      get_config=0
+   else
+      get_config=1
+   fi
 fi
 if [ $get_config -eq 1 ]; then
    # allow for up.sh to be called in a folder away from where the key is stored
-   conf=${PWD}/aws_$(date +%Y%m%d).conf
+   conf=${PWD}/keys/aws_$(date +%Y%m%d).conf
    triesLeft=25
    delays=15
    while [ $triesLeft -gt 0 ]; do
