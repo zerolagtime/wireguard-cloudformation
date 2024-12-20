@@ -420,6 +420,14 @@
                 "IamInstanceProfile": {
                     "Ref": "WgEc2IamProfile"
                 },
+                "BlockDeviceMappings": [
+                   {
+                      "DeviceName": "/dev/xvda",
+                      "Ebs": {
+                         "VolumeSize": "60"
+                      }
+                  }
+                ],
                 "UserData": {
                     "Fn::Base64": {
                         "Fn::Join": [
