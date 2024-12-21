@@ -14,6 +14,9 @@ Precursor setup:
 6. Login if you were already configure (`aws sso login`) and are using SSO
 7. This repo is checked out to a folder (`git clone`)
 
+Permission to perform the actions in the Stack, via the AdministratorAccess
+built-in policy.
+
 Steps:
 
 1. Download the [Wireguard client](https://www.wireguard.com/install/) for 

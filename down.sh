@@ -29,6 +29,10 @@ function die() {
    echo "[$(date)] [FATAL] $msg" 1>&2 
    exit 1
 }
+if ! aws sts get-caller-identity >/dev/null; then
+   echo "Not logged in.  Use 'aws sso login' to get a session."
+   exit 1
+fi
 aws cloudformation delete-stack --stack-name wg1
 wait_for_stack wg1
 sleep 1
