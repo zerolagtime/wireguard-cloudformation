@@ -1,4 +1,5 @@
 #!/bin/bash
+key_dir=$(dirname "$0")/keys
 
 function is_deployed() {
    stack=$1
@@ -70,7 +71,8 @@ else
    get_config=1
 fi
 if [ $get_config -eq 1 ]; then
-   conf=aws_$(date +%Y%m%d).conf
+   mkdir -p "$key_dir"
+   conf="$key_dir/aws_$(date +%Y%m%d).conf"
    triesLeft=10
    delays=10
    while [ $triesLeft -gt 0 ]; do
