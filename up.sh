@@ -2,7 +2,7 @@
 
 function is_deployed() {
    stack=$1
-   output=$(aws cloudformation describe-stacks | jq --arg stack $stack -r '.Stacks[] | select(.StackName==$stack)| .StackName')
+   output=$(aws cloudformation describe-stacks | jq --arg stack $stack -r '.Stacks[] | select(.StackName==$stack)')
    if [ -n "$output" ]; then
       return 0; #true
    else
@@ -15,7 +15,10 @@ function wait_for_stack() {
    status="PENDING"
    until [ "$status" == "${verb}_COMPLETE" -o "$status" == "FAILURE" ]; 
    do
-     status=$(aws cloudformation describe-stacks --stack-name $stack | jq -r '.Stacks[].StackStatus')
+     status=$(aws cloudformation describe-stacks --stack-name $stack | jq --arg stack $stack -r '.Stacks[] | select(.StackName==$stack) | .StackStatus')
+     if [ -z "$status" ]; then
+        status="MISSING"
+     fi
      if [ "$status" != "${verb}_COMPLETE" ]; then 
         echo "[$(date)] [INFO] [$stack] waiting for stack to come up.  Currently $status"
         sleep 5
@@ -25,7 +28,7 @@ function wait_for_stack() {
      echo "[$(date)] [WARN] [$stack] $verb operation failed.  Currently $status"
      return 1
    fi
-   echo "[$(date)] [INFO] [$stack] stack is up.  Currently $status"
+   echo "[$(date)] [INFO] [$stack] stack is not up.  Currently $status"
    return 0
 }
 function die() {
@@ -49,13 +52,9 @@ else
    fi
 fi
 get_config=0
-output=$(is_deployed wg1)
-if [ $? -eq 1 ]; then
-   aws cloudformation create-stack --stack-name wg1 --template-body file://wireguard-master.json --parameters ParameterKey=VpnSecurityGroupID,ParameterValue=sg-0c35a32f2d961d3e5 --capabilities CAPABILITY_IAM
-   wait_for_stack wg1 || (./down.sh; die "Stack wg1 did not come up")
-   get_config=1
-else
-   aws cloudformation update-stack --stack-name wg1 --template-body file://wireguard-master.json --parameters ParameterKey=VpnSecurityGroupID,ParameterValue=sg-0c35a32f2d961d3e5 --capabilities CAPABILITY_IAM
+default_sg=$(aws ec2 describe-security-groups | jq -r '.SecurityGroups[] | select(.GroupName=="default") | .GroupId ' | head -1)
+if is_deployed wg1]; then
+   aws cloudformation update-stack --stack-name wg1 --template-body file://wireguard-master.json --parameters ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg --capabilities CAPABILITY_IAM
    err=$?
    if [ $err -eq 0 ]; then
       wait_for_stack wg1 UPDATE || (die "Stack wg1 failed to update")
@@ -65,6 +64,10 @@ else
       die "stack wg1 never finished updating"
    fi
    wait_for_stack wg1 UPDATE || die "Stack wg1 failed to update"
+else
+   aws cloudformation create-stack --stack-name wg1 --template-body file://wireguard-master.json --parameters ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg --capabilities CAPABILITY_IAM
+   wait_for_stack wg1 || (./down.sh; die "Stack wg1 did not come up")
+   get_config=1
 fi
 if [ $get_config -eq 1 ]; then
    conf=aws_$(date +%Y%m%d).conf
