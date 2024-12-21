@@ -1,21 +1,63 @@
 Launch EC2 Instance with Wireguard
 ==================================
 
-This [Cloudformation](https://aws.amazon.com/cloudformation/) creates a personal [Wireguard](https://www.wireguard.com/) VPN server in AWS. I assume a cursory understanding of AWS console and Cloudformation.
+This [Cloudformation](https://aws.amazon.com/cloudformation/) creates a personal [Wireguard](https://www.wireguard.com/) VPN server in AWS. I assume a cursory understanding of AWS console and Cloudformation. This deployment should fit completely within the free tier of AWS. If there are overruns, they should be under $5USD/mo, but probably only because additional resources were added to the account.
+
+Precursor setup:
+1. Set up an AWS account and either configure Identity Center for SSO login
+   (preferred) or set up access keys.
+2. Be on a Linux or MacOS system. You do not need root.
+3. Open a terminal window
+4. Ensure that the AWS command line interface (CLI) v2 is installed.
+   A sysadmin may need to install this.
+5. Set up access to the AWS account (e.g. `aws configure sso` or `aws configure`)
+6. Login if you were already configure (`aws sso login`) and are using SSO
+7. This repo is checked out to a folder (`git clone`)
 
 Steps:
 
-1. Download the [Wireguard client](https://www.wireguard.com/install/) for your platform
-2. Log into AWS console and go to the region of preference
-3. Clone this repo and depoly the `wireguard.json` template
-4. After the Cloudformation is deployed and server has rebooted click the link in the Cloudformation Outputs to see the encrypted client config in SSM Parameter Store (or navigate to Parameter Store in the console)
-5. Paste config into your client and activate (or add it to your favorite, and secure, qr code generator to add a tunnel to a mobile device)
-6. Profit?
+1. Download the [Wireguard client](https://www.wireguard.com/install/) for 
+   your platform that needs outgoing Internet protected
+2. Log into AWS console and go to the region of preference. Set the
+   environment variable "AWS_REGION" if you want to override the default.
+3. Start it up: `./up.sh`
+4. If the startup succeeds, the key for the client is under `keys/`
+5. Transfer the key to the system that needs a tunnel and add the
+   the key
+6. If additional outside ports need added for listening service, like
+   a P2P tool, use the AWS console to add Ingress rules.
+   1. Go to _EC2_ in the console
+   2. Go to _Security Groups_ on the left under _Network & Security_
+   3. Click on the _Security group ID_ of the entry with `wg1-` in the
+      _Security group name_ column
+   4. Select the _Edit inbound rules_
+   5. Do not delete the entry with port `51820`
+   6. _Add rule_ for each protocol and port range to add
+   7. Click _Save rules_
+   8. If the Cloudformation Stack is run again, these rules will get removed.
+7. Tear down the VPN tunnel with `./down.sh`. This also invalidates the key
+   on any clients. Delete keys server and client side when not in use as
+   they can be used to decrypt recorded streams.
 
 Of Note:
 
-* The default AMI is Amazon Linux 2 and it grabs the latest (NOT FOR PRODUCTION)
+* The default AMI is Amazon Linux 2023. Periodically restart the image to 
+  get updates, force key rotation, and to get a new public IP address
 * This leverages Cloudflare's DNS 1.1.1.1
-* The client config is sent to a kms encrypted SSM Parameter Store
-* There is a force reboot at the end of userdata so that Wireguard comes up gracefully
-* The instance does not get an ssh key passed in and ssh port is not open
+* Only IPv4 is supported at this time
+* Boot logs will go to syslog but are only retained for three days
+* Cloudwatch Metrics has up/down statistics to allow historical review
+* The instance does not get an ssh key passed in and the ssh port is not open
+
+Debugging:
+* If the stack fails to come up, look at the Cloudformation Stack `wg1`
+  under _Events - updated_. This will narrow down which resource failed
+  along with the most explanation you're probably going to get.
+* After 5 minutes, see if Cloudwatch has logs you can use. If there are 
+  logs, that means a lot of things went well and it's probably 
+  something related to inherited AWS permissions.
+* On the EC2 page for the instance, if it has been up a few minutes,
+  the view logs with _Actions_, _Monitor and troubleshoot_, followed by
+  _Get system log_. If the kernel release number is on the last line, 
+  it's probably fine.
+
