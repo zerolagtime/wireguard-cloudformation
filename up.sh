@@ -58,49 +58,62 @@ function die() {
    echo "[$(date)] [FATAL] $msg" 1>&2 
    exit 1
 }
-is_valid_json "$here/wireguard-eip-master.json"
-is_valid_json "$here/wireguard-eip-master.json"
-output=$(is_deployed wg1-eip)
+EIP_TEMPLATE="$here/wireguard-eip.json"
+EIP_STACK=wg1-eip
+EC2_TEMPLATE="$here/wireguard-no-eip.json"
+EC2_STACK=wg1
+is_valid_json "$EIP_TEMPLATE"
+is_valid_json "$EC2_TEMPLATE"
+output=$(is_deployed $EIP_STACK)
 if [ $? -eq 1 ]; then
-   aws cloudformation create-stack --stack-name wg1-eip --template-body file://${here}/wireguard-eip-master.json || die "stack wg1-eip could not deploy"
-   if ! wait_for_stack wg1-eip; then
-      die "Stack wg1-eip failed to deploy"
+   aws cloudformation create-stack --stack-name $EIP_STACK \
+       --template-body file://${EIP_TEMPLATE} || \
+       die "stack w$EIP_STACK could not deploy"
+   if ! wait_for_stack $EIP_STACK; then
+      die "Stack $EIP_STACK failed to deploy"
    fi
 else
-   aws cloudformation update-stack --stack-name wg1-eip --template-body file://${here}/wireguard-eip-master.json 
+   aws cloudformation update-stack --stack-name $EIP_STACK \
+       --template-body file://${EIP_TEMPLATE}  
    err=$?
    if [ $err -eq 0 ]; then
-      if ! wait_for_stack wg1-eip UPDATE; then
-         die "Stack wg1-eip failed to update"
+      if ! wait_for_stack $EIP_STACK UPDATE; then
+         die "Stack $EIP_STACK failed to update"
       fi
    elif [ $err -eq 255 ]; then
-      echo "[$(date)] [INFO] [wg-eip1] No updates needed to stack" 1>&2 
+      echo "[$(date)] [INFO] [$EIP_STACK] No updates needed to stack" 1>&2 
    else
-      die "stack wg1-eip never finished updating"
+      die "stack $EIP_STACK never finished updating"
    fi
 fi
 get_config=0
 default_sg=$(aws ec2 describe-security-groups | jq -r '.SecurityGroups[] | select(.GroupName=="default") | .GroupId ' | head -1)
-if is_deployed wg1 ; then
-   aws cloudformation update-stack --stack-name wg1 --template-body file://${here}/wireguard-master.json --parameters ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg --capabilities CAPABILITY_IAM
+if is_deployed $EC2_STACK ; then
+   aws cloudformation update-stack --stack-name $EC2_STACK \
+         --template-body file://${EC2_TEMPLATE} \
+         --parameters ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg \
+         --capabilities CAPABILITY_IAM
    err=$?
    if [ $err -eq 0 ]; then
-      if ! wait_for_stack wg1 UPDATE; then
-         die "Stack wg1 failed to update"
+      if ! wait_for_stack $EC2_STACK UPDATE; then
+         die "Stack $EC2_STACK failed to update"
       fi
    elif [ $err -eq 255 ]; then
-      echo "[$(date)] [INFO] [wg1] No updates needed to wg1 stack" 1>&2 
+      echo "[$(date)] [INFO] [$EC2_STACK] No updates needed to $EC2_STACK stack" 1>&2 
    else
-      die "stack wg1 never finished updating"
+      die "stack $EC2_STACK never finished updating"
    fi
-   if ! wait_for_stack wg1 UPDATE; then 
-      die "Stack wg1 failed to update"
+   if ! wait_for_stack $EC2_STACK UPDATE; then 
+      die "Stack $EC2_STACK failed to update"
    fi
 else
-   aws cloudformation create-stack --stack-name wg1 --template-body file://${here}/wireguard-master.json --parameters ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg --capabilities CAPABILITY_IAM
-   if ! wait_for_stack wg1; then
+   aws cloudformation create-stack --stack-name $EC2_STACK \
+       --template-body file://${EC2_TEMPLATE} \
+       --parameters ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg \
+       --capabilities CAPABILITY_IAM
+   if ! wait_for_stack $EC2_STACK; then
       $here/down.sh; 
-      die "Stack wg1 did not come up"
+      die "Stack $EC2_STACK did not come up"
       get_config=0
    else
       get_config=1
