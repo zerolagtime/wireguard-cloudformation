@@ -38,7 +38,10 @@ Steps:
    6. _Add rule_ for each protocol and port range to add
    7. Click _Save rules_
    8. If the Cloudformation Stack is run again, these rules will get removed.
-7. Tear down the VPN tunnel with `./down.sh`. This also invalidates the key
+7. If you want to make the ports always available, update the `wireguard-no-eip.json`
+   file and edit the definition of `VpnSecurityGroup` (you will see a reference to
+   the Wireguard UDP port 51820). Follow the JSON pattern for your protocol and port.
+8. Tear down the VPN tunnel with `./down.sh`. This also invalidates the key
    on any clients. Delete keys server and client side when not in use as
    they can be used to decrypt recorded streams.
 
