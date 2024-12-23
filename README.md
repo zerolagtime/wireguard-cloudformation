@@ -54,6 +54,8 @@ Of Note:
 * Boot logs will go to syslog but are only retained for three days
 * Cloudwatch Metrics has up/down statistics to allow historical review
 * The instance does not get an ssh key passed in and the ssh port is not open
+* Tearing down the stacks deletes the Cloudwatch logs, but not the metrics
+  which have to expire according to the metrics timeline, a few days
 
 Debugging:
 * If the stack fails to come up, look at the Cloudformation Stack `wg1`
