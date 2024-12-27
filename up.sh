@@ -8,6 +8,7 @@
 # all traffic for a node is routed through AWS.
 
 here=$(dirname "$0")
+
 if [[ $here == "." ]]; then
    here=${PWD}
 fi
@@ -42,15 +43,20 @@ function wait_for_stack() {
         status="MISSING"
      fi
      if [ "$status" != "${verb}_COMPLETE" -a "$status" != "ROLLBACK_COMPLETE" ]; then 
-        echo "[$(date)] [INFO] [$stack] waiting for stack to come up.  Currently $status"
+        printf "[$(date)] [INFO] %s\n" \
+         "[$stack] waiting for stack to come up.  Currently $status"
         sleep 5
      fi
    done
    if [ "$status" != "${verb}_COMPLETE" ]; then
-     echo "[$(date)] [WARN] [$stack] $verb operation failed.  Currently $status"
+     echo
+     printf "[$(date)] [WARN] \n" \
+      "[$stack] $verb operation failed.  Currently $status"
      return 1
    fi
-   echo "[$(date)] [INFO] [$stack] stack is not up.  Currently $status"
+   echo
+   printf "[$(date)] [INFO] %s\n" \
+      "[$stack] stack is up.  Currently $status"
    return 0
 }
 function die() {
@@ -58,23 +64,48 @@ function die() {
    echo "[$(date)] [FATAL] $msg" 1>&2 
    exit 1
 }
+function get_ssh_public_key() {
+   if [ -d "$HOME/.ssh" ]; then
+      # Define the default public key filenames in order of security (most secure first)
+      key_files=("id_ed25519.pub" "id_ecdsa.pub" "id_rsa.pub" "id_dsa.pub")
+
+      # Iterate over the key files
+      for key_file in "${key_files[@]}"; do
+         key_path="$HOME/.ssh/$key_file"
+         if [[ -f "$key_path" ]]; then
+            echo "$key_path"
+            return 0
+         fi
+      done
+   fi
+   echo "[$(date)] [WARN] No default public keys in ~/.ssh. Remote SSH not available." 1>&2
+   return 1
+}
+
 EIP_TEMPLATE="$here/wireguard-eip.json"
 EIP_STACK=wg1-eip
 EC2_TEMPLATE="$here/wireguard-no-eip.json"
 EC2_STACK=wg1
+pub_key_file=$(get_ssh_public_key)
+if [[ -n $pub_key_file ]]; then
+   pub_key_value="\"$(<"$pub_key_file")\""
+   pub_key_param="ParameterKey=PublicKey,ParameterValue=$pub_key_value"
+fi
+
 is_valid_json "$EIP_TEMPLATE"
 is_valid_json "$EC2_TEMPLATE"
 output=$(is_deployed $EIP_STACK)
 if [ $? -eq 1 ]; then
-   aws cloudformation create-stack --stack-name $EIP_STACK \
-       --template-body file://${EIP_TEMPLATE} || \
-       die "stack w$EIP_STACK could not deploy"
+   if ! aws cloudformation create-stack --stack-name $EIP_STACK \
+       --template-body file://${EIP_TEMPLATE} --no-cli-pager; then
+      die "stack $EIP_STACK could not deploy"
+   fi
    if ! wait_for_stack $EIP_STACK; then
       die "Stack $EIP_STACK failed to deploy"
    fi
 else
    aws cloudformation update-stack --stack-name $EIP_STACK \
-       --template-body file://${EIP_TEMPLATE}  
+       --template-body file://${EIP_TEMPLATE} --no-cli-pager
    err=$?
    if [ $err -eq 0 ]; then
       if ! wait_for_stack $EIP_STACK UPDATE; then
@@ -91,9 +122,10 @@ default_sg=$(aws ec2 describe-security-groups | jq -r '.SecurityGroups[] | selec
 if is_deployed $EC2_STACK ; then
    aws cloudformation update-stack --stack-name $EC2_STACK \
          --template-body file://${EC2_TEMPLATE} \
-         --parameters ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg \
-         --capabilities CAPABILITY_IAM
-   err=$?
+         --parameters "$pub_key_param" ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg \
+         --capabilities CAPABILITY_IAM \
+         --no-cli-pager
+   set +x
    if [ $err -eq 0 ]; then
       if ! wait_for_stack $EC2_STACK UPDATE; then
          die "Stack $EC2_STACK failed to update"
@@ -107,10 +139,12 @@ if is_deployed $EC2_STACK ; then
       die "Stack $EC2_STACK failed to update"
    fi
 else
+   
    aws cloudformation create-stack --stack-name $EC2_STACK \
        --template-body file://${EC2_TEMPLATE} \
-       --parameters ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg \
-       --capabilities CAPABILITY_IAM
+       --parameters "$pub_key_param" ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg \
+       --capabilities CAPABILITY_IAM \
+       --no-cli-pager
    if ! wait_for_stack $EC2_STACK; then
       $here/down.sh; 
       die "Stack $EC2_STACK did not come up"

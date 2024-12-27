@@ -35,6 +35,16 @@
             "Default": "true",
             "Description": "This is to associate with an already created/exported EIP. Should be true unless testing.",
             "Type": "String"
+        },
+        "PublicKey": {
+            "Type": "String",
+            "Description": "The (optional) public SSH key for EC2 key pair",
+            "Default": ""
+        },
+        "PublicKeyName": {
+            "Type": "String",
+            "Description": "Name of an existing EC2 KeyPair to enable SSH access to the instance.",
+            "Default": "wgPublicKey"
         }
     },
     "Mappings": {},
@@ -46,9 +56,33 @@
                 },
                 "true"
             ]
+        },
+        "IsPublicKeyProvided": {
+            "Fn::Not": [
+                {
+                "Fn::Equals": [
+                    {
+                    "Ref": "PublicKey"
+                    },
+                    ""
+                ]
+                }
+            ]
         }
     },
     "Resources": {
+        "MyKeyPair": {
+            "Type": "AWS::EC2::KeyPair",
+            "Condition": "IsPublicKeyProvided",
+            "Properties": {
+                "KeyName": {
+                    "Ref": "PublicKeyName"
+                },
+                "PublicKeyMaterial": {
+                    "Ref": "PublicKey"
+                }
+            }
+        },
         "VpnSecurityGroup": {
             "Type": "AWS::EC2::SecurityGroup",
             "Properties": {
@@ -162,7 +196,7 @@
                                             "          },\n",
                                             "          {\n",
                                             "            \"file_path\": \"/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log\",\n",
-                                            "            \"log_group_name\": \"Syslog\",\n",
+                                            "            \"log_group_name\": \"WgSyslog\",\n",
                                             "            \"log_stream_name\": \"${aws:InstanceId}/syslog\",\n",
                                             "            \"timezone\": \"UTC\"\n",
                                             "          }\n",
@@ -209,7 +243,7 @@
                                             "import requests\n",
                                             "\n",
                                             "# Define the CloudWatch namespace\n",
-                                            "CLOUDWATCH_NAMESPACE = 'WireGuard'\n",
+                                            "CLOUDWATCH_NAMESPACE = 'Production/WireGuard'\n",
                                             "\n",
                                             "def get_instance_region():\n",
                                             "    \"\"\"Retrieve the instance region using IMDSv2.\"\"\"\n",
@@ -245,7 +279,7 @@
                                             "    result = subprocess.run(['wg', 'show', 'all', 'dump'], stdout=subprocess.PIPE, text=True)\n",
                                             "    metrics = []\n",
                                             "\n",
-                                            "    for rownum, line in enumerate(result.stdout.strip().split('\n')):\n",
+                                            "    for rownum, line in enumerate(result.stdout.strip().splitlines()):\n",
                                             "        columns = line.split('\t')\n",
                                             "        # Skip the first line and adjust the columns as per your requirements\n",
                                             "        if len(columns) >= 5 and rownum > 0:\n",
@@ -403,7 +437,7 @@
                       },
                       "04_wg_service": {
                         "command": "systemctl enable --now wg-quick@wg0"
-                      },
+                      }, 
                       "05_wg_logging": {
                         "command": "echo module wireguard +p > /sys/kernel/debug/dynamic_debug/control"
                       }
@@ -416,6 +450,15 @@
                 },
                 "InstanceType": {
                     "Ref": "InstanceType"
+                },
+                "KeyName": {
+                    "Fn::If": [
+                        "IsPublicKeyProvided",
+                        {
+                        "Ref": "PublicKeyName"
+                        },
+                        { "Ref": "AWS::NoValue" }
+                    ]
                 },
                 "IamInstanceProfile": {
                     "Ref": "WgEc2IamProfile"
@@ -437,7 +480,7 @@
                                 "echo \"INFO: Getting system updates\"\n",
                                 "dnf update -y -qq\n",
                                 "# Install aws-cfn-bootstrap\n",
-                                "time dnf install -qqq -y aws-cfn-bootstrap wireguard-tools iptables-nft kernel-devel rsyslog amazon-cloudwatch-agent\n",
+                                "time dnf install -qqq -y aws-cfn-bootstrap wireguard-tools iptables-nft kernel-devel rsyslog amazon-cloudwatch-agent python3-boto3\n",
                                 "# Confirm cfn-init installation\n",
                                 "if [ ! -f /usr/bin/cfn-init ]; then\n",
                                 "  echo 'ERROR: cfn-init not installed!';\n",
