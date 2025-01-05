@@ -194,7 +194,7 @@
                                             "          {\n",
                                             "            \"file_path\": \"/var/log/syslog\",\n",
                                             "            \"log_stream_name\": \"{instance_id}/syslog\",\n",
-                                            "            \"log_group_name\": \"Journald\"\n",
+                                            "            \"log_group_name\": \"WgSyslog\"\n",
                                             "          },\n",
                                             "          {\n",
                                             "            \"file_path\": \"/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log\",\n",
@@ -425,6 +425,22 @@
                                     ]
                                 }
                             },
+                            "/etc/systemd/system/cfn-hup.service": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                        "[Unit]\n",
+                                        "Description=cfn-hup daemon\n",
+                                        "[Service]\n",
+                                        "ExecStart=/usr/bin/cfn-hup -v\n",
+                                        "PIDFile=/var/run/cfn-hup.pid\n",
+                                        "[Install]\n",
+                                        "WantedBy=multi-user.target\n"                                            
+                                        ]
+                                    ]
+                                }
+                            },
                             "/usr/local/bin/01-journald_syslog.sh": {
                                 "content": {
                                     "Fn::Join": [
@@ -522,6 +538,10 @@
                                 "sources": [ "/usr/local/bin/wireguard-cloudwatch-metrics.py" ]
                             },
                             "wg_metrics.timer": {
+                                "enabled": "true",
+                                "ensureRunning": "true"
+                            },
+                            "cfn-hup": {
                                 "enabled": "true",
                                 "ensureRunning": "true"
                             }
@@ -673,7 +693,6 @@
                         {
                             "Effect": "Allow",
                             "Action": [
-                                "logs:CreateLogGroup",
                                 "logs:CreateLogStream",
                                 "logs:PutLogEvents"
                             ],
@@ -751,13 +770,24 @@
                       {
                         "Effect": "Allow",
                         "Action": [
-                          "cloudwatch:PutMetricData",
+                          "cloudwatch:PutMetricData"
+                        ],
+                        "Resource": "*"
+                      },
+                      {
+                        "Effect": "Allow",
+                        "Action": [
                           "logs:CreateLogGroup",
                           "logs:CreateLogStream",
                           "logs:PutLogEvents"
                         ],
-                        "Resource": "*"
+                        "Resource": [
+                            {
+                                "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:WgSyslog:*"
+                            }
+                        ]
                       }
+
                     ]
                   }
                 }
