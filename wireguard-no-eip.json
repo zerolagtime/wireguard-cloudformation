@@ -432,7 +432,6 @@
                                         [
                                         "#!/bin/sh\n",
                                         "# Configure rsyslog to receive logs from journald\n",
-                                        "echo 'module(load=\"imjournal\" stateFile=\"imjournal.state\")' >> /etc/rsyslog.conf\n",
                                         "echo '*.* /var/log/syslog' >> /etc/rsyslog.conf\n",
                                         "systemctl restart rsyslog\n"
                                         ]
@@ -495,19 +494,41 @@
                             "03_wireguard_setup": {
                                 "command": "/usr/local/bin/02-wireguard_setup.sh"
                             },
-                            "04_enable_wg_service": {
-                                "command": "systemctl enable wg_metrics.service"
-                            },
-                            "05_enable_wg_timer": {
-                                "command": "systemctl enable --now wg_metrics.timer"
-                            },
-                            "04_wg_service": {
-                                "command": "systemctl enable --now wg-quick@wg0"
-                            }, 
                             "07_wg_logging": {
                                 "command": "echo module wireguard +p > /sys/kernel/debug/dynamic_debug/control"
                             }
-                        }                }
+                        },
+                    "services": {
+                        "systemd": {
+                            "amazon-cloudwatch-agent": {
+                                "enabled": "true",
+                                "ensureRunning": "true",
+                                "files": [ "/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/wg.json" ],
+                                "packages": {"yum": [ "amazon-cloudwatch-agent" ]}
+                            },
+                            "wg-quick@wg0": {
+                                "enabled": "true",
+                                "ensureRunning": "true",
+                                "files": [ "/etc/wireguard/wg0.conf" ]
+                            },
+                            "rsyslog": {
+                                "enabled": "true",
+                                "ensureRunning": "true",
+                                "files": [ "/etc/rsyslog.conf" ]
+                            },
+                            "wg_metrics.service": {
+                                "enabled": "true",
+                                "ensureRunning": "true",
+                                "sources": [ "/usr/local/bin/wireguard-cloudwatch-metrics.py" ]
+                            },
+                            "wg_metrics.timer": {
+                                "enabled": "true",
+                                "ensureRunning": "true"
+                            }
+
+                        }
+                    }
+                }
                 }
             },
             "Properties": {
