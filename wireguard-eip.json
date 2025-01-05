@@ -32,7 +32,9 @@
                         }
                     ]
                 }
-            }
+            },
+            "DeletionPolicy": "Delete",
+            "UpdateReplacePolicy": "Retain"
         }       
     },
     "Outputs": {

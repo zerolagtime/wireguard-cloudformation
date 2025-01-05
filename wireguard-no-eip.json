@@ -702,7 +702,7 @@
                             ],
                             "Resource": [
                                 {
-                                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:WgSyslog:*"
+                                    "Fn::Sub": "arn:${AWS::Partition}:log:${AWS::Region}:${AWS::AccountId}:log-group:WgSyslog:*"
                                 }
                             ]
                         },
@@ -743,7 +743,9 @@
                 "KmsKeyId": {
                     "Fn::ImportValue": "WireguardKMSKeyID"
                 }
-            }
+            },
+            "DeletionPolicy": "Delete",
+            "UpdateReplacePolicy": "Retain"
         },
         "EC2InstanceProfile": {
             "Type": "AWS::IAM::InstanceProfile",
@@ -790,7 +792,7 @@
                         ],
                         "Resource": [
                             {
-                                "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:WgSyslog:*"
+                                "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:WgSyslog:*"
                             }
                         ]
                       }
