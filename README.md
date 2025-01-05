@@ -47,15 +47,20 @@ Steps:
 
 Of Note:
 
-* The default AMI is Amazon Linux 2023. Periodically restart the image to 
+* The default AMI is Amazon Linux 2023. Periodically rebuild the stacks to 
   get updates, force key rotation, and to get a new public IP address
+* EC2 disks and Logs are all encrypted
 * This leverages Cloudflare's DNS 1.1.1.1
 * Only IPv4 is supported at this time
-* Boot logs will go to syslog but are only retained for three days
-* Cloudwatch Metrics has up/down statistics to allow historical review
-* The instance does not get an ssh key passed in and the ssh port is not open
+* Boot logs and system logs to go Cloudwatch Log Groups and are 
+  retained for 3 dayswill go to syslog but are only retained for three days
+* Cloudwatch Metrics has bandwidth usage and up/down statistics to allow historical review
+* A keypair is assigned to the instance if you have used a default key file
+  with ssh-keygen, but security groups disable access by default
 * Tearing down the stacks deletes the Cloudwatch logs, but not the metrics
   which have to expire according to the metrics timeline, a few days
+* To add support for SSH or other ports on ingress, manually create them
+  in the account and attach them to the instance after it is running
 
 Debugging:
 * If the stack fails to come up, look at the Cloudformation Stack `wg1`
