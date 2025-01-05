@@ -1,0 +1,44 @@
+name: CFN Lint
+
+on: [push, pull_request]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'  # Version can be adjusted based on requirements
+
+      - name: Install cfn-lint
+        run: |
+          pip install cfn-lint
+
+      - name: Lint CloudFormation templates
+        run: |
+          cfn-lint wireguard-eip.json wireguard-no-eip.json -I --format json > cfn-lint-results.json || true
+
+      - name: Check for Lint Errors
+        id: lint-check
+        run: |
+          LINT_ERRORS=$(jq '.[] | select(.level == "ERROR")' cfn-lint-results.json)
+          if [ -n "$LINT_ERRORS" ]; then
+            echo "Lint errors detected:"
+            echo "$LINT_ERRORS"
+            echo "::error::Lint errors found. See details below:"
+            echo "$LINT_ERRORS"
+            exit 1  # Exit with error code to fail the job
+          fi
+          
+          LINT_WARNINGS=$(jq '.[] | select(.level == "WARNING")' cfn-lint-results.json)
+          if [ -n "$LINT_WARNINGS" ]; then
+            echo "Lint warnings detected:"
+            echo "$LINT_WARNINGS"
+            echo "::warning::Warnings found. See details below:"
+            echo "$LINT_WARNINGS"
+          fi
