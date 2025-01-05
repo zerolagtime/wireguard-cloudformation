@@ -50,7 +50,7 @@ function wait_for_stack() {
    done
    if [ "$status" != "${verb}_COMPLETE" ]; then
      echo
-     printf "[$(date)] [WARN] \n" \
+     printf "[$(date)] [WARN] %s\n" \
       "[$stack] $verb operation failed.  Currently $status"
      return 1
    fi
@@ -82,6 +82,13 @@ function get_ssh_public_key() {
    return 1
 }
 
+function get_stack_deploy_errors() {
+   stack="$1"
+   aws cloudformation describe-stack-events --stack-name ${stack} \
+     --query "StackEvents[?ResourceStatus=='CREATE_FAILED'] | sort_by(@, &Timestamp)[0].[LogicalResourceId, ResourceStatusReason]" \
+     --output yaml | awk 'NR > 1 {print "   " $0} NR==1 {print}'
+}
+
 EIP_TEMPLATE="$here/wireguard-eip.json"
 EIP_STACK=wg1-eip
 EC2_TEMPLATE="$here/wireguard-no-eip.json"
@@ -104,14 +111,15 @@ if [ $? -eq 1 ]; then
       die "Stack $EIP_STACK failed to deploy"
    fi
 else
-   aws cloudformation update-stack --stack-name $EIP_STACK \
-       --template-body file://${EIP_TEMPLATE} --no-cli-pager
+   output=$(aws cloudformation update-stack --stack-name $EIP_STACK \
+       --template-body file://${EIP_TEMPLATE} --no-cli-pager 2>&1 )
    err=$?
+   echo "[$(date)] DEBUG: \"aws cloudformation update-stack --stack-name $EIP_STACK\" exited with code $err"
    if [ $err -eq 0 ]; then
       if ! wait_for_stack $EIP_STACK UPDATE; then
-         die "Stack $EIP_STACK failed to update"
+         die "Stack $EIP_STACK failed to update\n$output"
       fi
-   elif [ $err -eq 255 ]; then
+   elif [ $err -eq 254 ]; then
       echo "[$(date)] [INFO] [$EIP_STACK] No updates needed to stack" 1>&2 
    else
       die "stack $EIP_STACK never finished updating"
@@ -120,17 +128,17 @@ fi
 get_config=0
 default_sg=$(aws ec2 describe-security-groups | jq -r '.SecurityGroups[] | select(.GroupName=="default") | .GroupId ' | head -1)
 if is_deployed $EC2_STACK ; then
-   aws cloudformation update-stack --stack-name $EC2_STACK \
+   output=$(aws cloudformation update-stack --stack-name $EC2_STACK \
          --template-body file://${EC2_TEMPLATE} \
          --parameters "$pub_key_param" ParameterKey=VpnSecurityGroupID,ParameterValue=$default_sg \
          --capabilities CAPABILITY_IAM \
-         --no-cli-pager
-   set +x
+         --no-cli-pager 2>&1)
+   err=$?
    if [ $err -eq 0 ]; then
       if ! wait_for_stack $EC2_STACK UPDATE; then
-         die "Stack $EC2_STACK failed to update"
+         die "Stack $EC2_STACK failed to update\n$output"
       fi
-   elif [ $err -eq 255 ]; then
+   elif [ $err -eq 254 ]; then
       echo "[$(date)] [INFO] [$EC2_STACK] No updates needed to $EC2_STACK stack" 1>&2 
    else
       die "stack $EC2_STACK never finished updating"
@@ -146,6 +154,7 @@ else
        --capabilities CAPABILITY_IAM \
        --no-cli-pager
    if ! wait_for_stack $EC2_STACK; then
+      get_stack_deploy_errors $EC2_STACK
       $here/down.sh; 
       die "Stack $EC2_STACK did not come up"
       get_config=0
@@ -159,13 +168,14 @@ if [ $get_config -eq 1 ]; then
    triesLeft=25
    delays=15
    while [ $triesLeft -gt 0 ]; do
-      printf "Waiting for secure configuration to post. Tries left: %2d                  " $triesLeft
-      aws ssm get-parameter --name "ClientConfig" --with-decryption | jq -r '.Parameter.Value' > $conf  2>/dev/null
+      printf "%s Waiting for secure configuration to post. Tries left: %2d " \
+         "[$(date)] [INFO]" $triesLeft
+      aws ssm get-parameter --name "ClientConfig" --with-decryption 2>/dev/null | jq -r '.Parameter.Value' > $conf  
       if [ -s $conf ]; then
-         echo Success
+         echo "Success         "
          break
       else
-         printf "Still waiting\r"
+         printf "Still waiting  \r"
          sleep $delays
          triesLeft=$[ $triesLeft - 1 ]
       fi
@@ -178,6 +188,8 @@ if [ $get_config -eq 1 ]; then
       echo "[$(date)] [WARN] Config parameter not downloaded and so not deleted."
    fi
 else
-   mv $conf{,.failed}
-   echo "[$(date)] [INFO] Wireguard config not updated.  Use last known configuration file."
+   if [[ -f $conf ]]; then
+      mv $conf{,.failed}
+      echo "[$(date)] [INFO] Wireguard config not updated.  Use last known configuration file."
+   fi
 fi

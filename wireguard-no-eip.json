@@ -103,7 +103,7 @@
                 "AWS::CloudFormation::Init": {
                     "config": {
                         "packages": {
-                            "dnf": {
+                            "yum": {
                                 "wireguard-tools": [],
                                 "kernel-devel": [],
                                 "aws-cfn-bootstrap": [],
@@ -111,7 +111,9 @@
                                 "iptables-nft": [],
                                 "amazon-cloudwatch-agent": [],
                                 "cronie": [],
-                                "python-boto3": []
+                                "python3-boto3": [],
+                                "rsyslog": [],
+                                "rsyslog-logrotate": []
                             }
                         },
                         "files": {
@@ -191,13 +193,13 @@
                                             "        \"collect_list\": [\n",
                                             "          {\n",
                                             "            \"file_path\": \"/var/log/syslog\",\n",
-                                            "            \"log_stream_name\": \"${aws:InstanceId}/syslog\",\n",
+                                            "            \"log_stream_name\": \"{instance_id}/syslog\",\n",
                                             "            \"log_group_name\": \"Journald\"\n",
                                             "          },\n",
                                             "          {\n",
                                             "            \"file_path\": \"/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log\",\n",
                                             "            \"log_group_name\": \"WgSyslog\",\n",
-                                            "            \"log_stream_name\": \"${aws:InstanceId}/syslog\",\n",
+                                            "            \"log_stream_name\": \"{instance_id}/syslog\",\n",
                                             "            \"timezone\": \"UTC\"\n",
                                             "          }\n",
                                             "        ]\n",
@@ -422,26 +424,90 @@
                                         ]
                                     ]
                                 }
+                            },
+                            "/usr/local/bin/01-journald_syslog.sh": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                        "#!/bin/sh\n",
+                                        "# Configure rsyslog to receive logs from journald\n",
+                                        "echo 'module(load=\"imjournal\" stateFile=\"imjournal.state\")' >> /etc/rsyslog.conf\n",
+                                        "echo '*.* /var/log/syslog' >> /etc/rsyslog.conf\n",
+                                        "systemctl restart rsyslog\n"
+                                        ]
+                                    ]
+                                },
+                                "mode": "000700",
+                                "owner": "root",
+                                "group": "root"
+                            },
+                            "/usr/local/bin/02-wireguard_setup.sh": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                        "#!/bin/sh\n",
+                                        "echo \"INFO: Enabling IPv4/IPv4 forwarding\"\n",
+                                        "echo \"net.ipv4.ip_forward = 1\" >> /etc/sysctl.conf\n",
+                                        "echo \"net.ipv6.conf.all.forwarding = 1\" >> /etc/sysctl.conf\n",
+                                        "echo \"install wg /sbin/modprobe --ignore-install wg\" > /etc/modprobe.d/wg.conf\n",
+                                        "sysctl -p\n",
+                                        "echo \"INFO: Generating keys and puting them in configs\"\n",
+                                        "SERVER_PRIVATE_KEY=$(wg genkey)\n",
+                                        "SERVER_PUBLIC_KEY=$(echo $SERVER_PRIVATE_KEY | wg pubkey)\n",
+                                        "sed -i \"s|fakeServerPrivateKey|$SERVER_PRIVATE_KEY|\" /etc/wireguard/wg0.conf\n",
+                                        "sed -i \"s|fakeServerPublicKey|$SERVER_PUBLIC_KEY|\" /tmp/wg0-client.conf\n",
+                                        "CLIENT_PRIVATE_KEY=$(wg genkey)\n",
+                                        "CLIENT_PUBLIC_KEY=$(echo $CLIENT_PRIVATE_KEY | wg pubkey)\n",
+                                        "sed -i \"s|fakePeerPublicKey|$CLIENT_PUBLIC_KEY|\" /etc/wireguard/wg0.conf\n",
+                                        "sed -i \"s|fakePeerPrivateKey|$CLIENT_PRIVATE_KEY|\" /tmp/wg0-client.conf\n",
+                                        "\n",
+                                        "echo \"INFO: Creating the AWS Parameter alias/aws/ssm\"\n",
+                                        "aws ssm put-parameter",
+                                        "    --name \"ClientConfig\"",
+                                        "    --type \"SecureString\"",
+                                        "    --key-id alias/aws/ssm",
+                                        "    --overwrite",
+                                        "    --region ",
+                                        {
+                                            "Ref": "AWS::Region"
+                                        },
+                                        "    --value \"$(cat /tmp/wg0-client.conf)\" \n",
+                                        "echo \"INFO: Deleting client WireGuard keys from the system\"\n",
+                                        "# Erase init log to remove key, may need to comment out to trouble shoot\n",
+                                        "rm -f /tmp/wg0-client.conf\n"
+                                        ]
+                                    ]
+                                },
+                                "mode": "000700",
+                                "owner": "root",
+                                "group": "root"
                             }
-                        }
-                    },
-                    "commands": {
-                      "01_start_agent": {
-                        "command": "systemctl restart amazon-cloudwatch-agent"
-                      }, 
-                      "02_enable_wg_service": {
-                        "command": "systemctl enable wg_metrics.service"
-                      },
-                      "03_enable_wg_timer": {
-                        "command": "systemctl enable --now wg_metrics.timer"
-                      },
-                      "04_wg_service": {
-                        "command": "systemctl enable --now wg-quick@wg0"
-                      }, 
-                      "05_wg_logging": {
-                        "command": "echo module wireguard +p > /sys/kernel/debug/dynamic_debug/control"
-                      }
-                    }
+                        },
+                        "commands": { 
+                            "01_journald_to_syslog": {
+                                "command": "/usr/local/bin/01-journald_syslog.sh"
+                            },
+                            "02_start_agent": {
+                                "command": "systemctl enable --now amazon-cloudwatch-agent"
+                            }, 
+                            "03_wireguard_setup": {
+                                "command": "/usr/local/bin/02-wireguard_setup.sh"
+                            },
+                            "04_enable_wg_service": {
+                                "command": "systemctl enable wg_metrics.service"
+                            },
+                            "05_enable_wg_timer": {
+                                "command": "systemctl enable --now wg_metrics.timer"
+                            },
+                            "04_wg_service": {
+                                "command": "systemctl enable --now wg-quick@wg0"
+                            }, 
+                            "07_wg_logging": {
+                                "command": "echo module wireguard +p > /sys/kernel/debug/dynamic_debug/control"
+                            }
+                        }                }
                 }
             },
             "Properties": {
@@ -479,88 +545,23 @@
                                 "#!/bin/bash -e\n",
                                 "echo \"INFO: Getting system updates\"\n",
                                 "dnf update -y -qq\n",
-                                "# Install aws-cfn-bootstrap\n",
-                                "time dnf install -qqq -y aws-cfn-bootstrap wireguard-tools iptables-nft kernel-devel rsyslog amazon-cloudwatch-agent python3-boto3\n",
-                                "# Confirm cfn-init installation\n",
-                                "if [ ! -f /usr/bin/cfn-init ]; then\n",
-                                "  echo 'ERROR: cfn-init not installed!';\n",
-                                "  exit 1;\n",
-                                "fi\n",
-                                "\n",
-                                "# Configure rsyslog to receive logs from journald\n",
-                                "echo 'module(load=\"imjournal\" stateFile=\"imjournal.state\")' >> /etc/rsyslog.conf\n",
-                                "echo '*.* /var/log/syslog' >> /etc/rsyslog.conf\n",
-                                "systemctl restart rsyslog\n",
-                                "\n",
-                                "# Configure CloudWatch Agent\n",
-                                "cat > /opt/aws/amazon-cloudwatch-agent/bin/config.json << EOL\n",
-                                "{\n",
-                                "  \"agent\": {\n",
-                                "    \"metrics_collection_interval\": 60,\n",
-                                "    \"run_as_user\": \"root\"\n",
-                                "  },\n",
-                                "  \"logs\": {\n",
-                                "    \"logs_collected\": {\n",
-                                "      \"files\": {\n",
-                                "        \"collect_list\": [\n",
-                                "          {\n",
-                                "            \"file_path\": \"/var/log/syslog\",\n",
-                                "            \"log_group_name\": \"WgSyslog\",\n",
-                                "            \"log_stream_name\": \"{instance_id}\"\n",
-                                "          }\n",
-                                "        ]\n",
-                                "      }\n",
-                                "    }\n",
-                                "  }\n",
-                                "}\n",
-                                "EOL\n",
-                                "\n",
-                                "# Start CloudWatch Agent\n",
-                                "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -s -c file:/opt/aws/amazon-cloudwatch-agent/bin/config.json\n",
-                                "\n",
-                        
-                                "# Install the files and packages from the metadata\n",
-                                "/usr/bin/cfn-init -v ",
-                                "         --stack ",
-                                {
-                                    "Ref": "AWS::StackName"
-                                },
-                                "         --resource VpnInstance     ",
-                                "         --region ",
-                                {
-                                    "Ref": "AWS::Region"
-                                },
-                                "\n",
-                                "echo \"INFO: Enabling IPv4/IPv4 forwarding\"\n",
-                                "echo \"net.ipv4.ip_forward = 1\" >> /etc/sysctl.conf\n",
-                                "echo \"net.ipv6.conf.all.forwarding = 1\" >> /etc/sysctl.conf\n",
-                                "sysctl -p\n",
-                                "echo \"INFO: Generating keys and puting them in configs\"\n",
-                                "SERVER_PRIVATE_KEY=$(wg genkey)\n",
-                                "SERVER_PUBLIC_KEY=$(echo $SERVER_PRIVATE_KEY | wg pubkey)\n",
-                                "sed -i \"s|fakeServerPrivateKey|$SERVER_PRIVATE_KEY|\" /etc/wireguard/wg0.conf\n",
-                                "sed -i \"s|fakeServerPublicKey|$SERVER_PUBLIC_KEY|\" /tmp/wg0-client.conf\n",
-                                "CLIENT_PRIVATE_KEY=$(wg genkey)\n",
-                                "CLIENT_PUBLIC_KEY=$(echo $CLIENT_PRIVATE_KEY | wg pubkey)\n",
-                                "sed -i \"s|fakePeerPublicKey|$CLIENT_PUBLIC_KEY|\" /etc/wireguard/wg0.conf\n",
-                                "sed -i \"s|fakePeerPrivateKey|$CLIENT_PRIVATE_KEY|\" /tmp/wg0-client.conf\n",
-                                "\n",
-                                "echo \"INFO: Creating the AWS Parameter alias/aws/ssm\"\n",
-                                "aws ssm put-parameter",
-                                "    --name \"ClientConfig\"",
-                                "    --type \"SecureString\"",
-                                "    --key-id alias/aws/ssm",
-                                "    --overwrite",
-                                "    --region ",
-                                {
-                                    "Ref": "AWS::Region"
-                                },
-                                "    --value \"$(cat /tmp/wg0-client.conf)\" \n",
+                                "echo \"Starting CloudInit\"\n",
+                                "dnf install -y -qqq aws-cfn-bootstrap\n",
+                                "/opt/aws/bin/cfn-init -v ",
+                                        "         --stack ",
+                                        {
+                                            "Ref":"AWS::StackName"
+                                        },
+                                        "         --resource VpnInstance ",
+                                        "         --region ",
+                                        {
+                                            "Ref":"AWS::Region"
+                                        },
+                                        "\n",
+                                "echo \"INFO: CloudInit setup completed\"\n",
                                 "echo \"INFO: Enabling wireguard on restart\"\n",
                                 "sudo systemctl enable wg-quick@wg0.service\n",
-                                "echo \"INFO: Deleting client WireGuard keys from the system\"\n",
-                                "# Erase init log to remove key, may need to comment out to trouble shoot\n",
-                                "rm -f /tmp/wg0-client.conf\n",
+
                                 "cat /dev/null > /var/log/cloud-init-output.log\n",
                                 "echo \"INFO: Reboot needed to force kernel header to take effect\"\n",
                                 "reboot\n"
