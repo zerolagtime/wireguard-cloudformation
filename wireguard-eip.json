@@ -14,7 +14,26 @@
                   { "Key": "Name", "Value": "wg1-eip" }
                ]
             }
-           }
+        },
+        "MyKMSKey": {
+            "Type": "AWS::KMS::Key",
+            "Properties": {
+                "Description": "KMS key for encrypting storage and logs",
+                "KeyPolicy": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "AWS": "*"
+                            },
+                            "Action": "kms:*",
+                            "Resource": "*"
+                        }
+                    ]
+                }
+            }
+        }       
     },
     "Outputs": {
         "MyWireguardEIPAllocationId": {
@@ -33,6 +52,15 @@
             },
             "Export":{
                 "Name": "WireguardEIPAddress"
+            }
+        },
+        "MyKMSKeyID": {
+            "Description": "KMS Key ID",
+            "Value": {
+                "Fn::GetAtt": ["MyKMSKey", "Arn"]
+            },
+            "Export": {
+                "Name": "WireguardKMSKeyID"
             }
         }
     }

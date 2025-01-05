@@ -574,7 +574,11 @@
                    {
                       "DeviceName": "/dev/xvda",
                       "Ebs": {
-                         "VolumeSize": "60"
+                        "VolumeSize": "60",
+                        "KmsKeyId": {
+                            "Fn::ImportValue": "WireguardKMSKeyID"
+                        } ,
+                        "Encrypted": true
                       }
                   }
                 ],
@@ -735,7 +739,10 @@
             "Type": "AWS::Logs::LogGroup",
             "Properties": {
                 "LogGroupName": "WgSyslog",
-                "RetentionInDays": 3
+                "RetentionInDays": 3,
+                "KmsKeyId": {
+                    "Fn::ImportValue": "WireguardKMSKeyID"
+                }
             }
         },
         "EC2InstanceProfile": {
