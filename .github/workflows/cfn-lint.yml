@@ -1,12 +1,6 @@
 name: CFN Lint
 
-on:
-  push:
-    branches:
-      - main  # Change to your default branch if different
-  pull_request:
-    branches:
-      - main  # Change to your default branch if different
+on: [push, pull_request]
 
 jobs:
   lint:
