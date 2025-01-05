@@ -1,0 +1,20 @@
+name: Validate GitHub Actions
+
+on: [push, pull_request]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install actionlint
+        run: |
+          curl https://raw.githubusercontent.com/rhysd/actionlint/master/actionlint > actionlint
+          chmod +x actionlint
+
+      - name: Lint GitHub Actions
+        run: |
+          ./actionlint .github/workflows/
