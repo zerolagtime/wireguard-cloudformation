@@ -1,0 +1,13 @@
+[Unit]
+Description=WireGuard Metrics
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/wireguard-cloudwatch-metrics.py
+WorkingDirectory=/root
+StandardOutput=journal
+StandardError=journal
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target\n

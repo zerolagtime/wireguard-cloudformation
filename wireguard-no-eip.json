@@ -9,7 +9,7 @@
             "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
         },
         "InstanceType": {
-            "Default": "t2.micro",
+            "Default": "t3a.nano",
             "Description": "Instance type",
             "Type": "String"
         },
@@ -504,8 +504,8 @@
                             "01_journald_to_syslog": {
                                 "command": "/usr/local/bin/01-journald_syslog.sh"
                             },
-                            "02_start_agent": {
-                                "command": "systemctl enable --now amazon-cloudwatch-agent"
+                            "02_stop_agent": {
+                                "command": "systemctl disable --now amazon-cloudwatch-agent"
                             }, 
                             "03_wireguard_setup": {
                                 "command": "/usr/local/bin/02-wireguard_setup.sh"
@@ -517,7 +517,7 @@
                     "services": {
                         "systemd": {
                             "amazon-cloudwatch-agent": {
-                                "enabled": "true",
+                                "enabled": "false",
                                 "ensureRunning": "true",
                                 "files": [ "/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/wg.json" ],
                                 "packages": {"yum": [ "amazon-cloudwatch-agent" ]}
@@ -533,12 +533,12 @@
                                 "files": [ "/etc/rsyslog.conf" ]
                             },
                             "wg_metrics.service": {
-                                "enabled": "true",
+                                "enabled": "false",
                                 "ensureRunning": "true",
                                 "sources": [ "/usr/local/bin/wireguard-cloudwatch-metrics.py" ]
                             },
                             "wg_metrics.timer": {
-                                "enabled": "true",
+                                "enabled": "false",
                                 "ensureRunning": "true"
                             },
                             "cfn-hup": {
@@ -574,7 +574,7 @@
                    {
                       "DeviceName": "/dev/xvda",
                       "Ebs": {
-                        "VolumeSize": "60",
+                        "VolumeSize": "30",
                         "KmsKeyId": {
                             "Fn::ImportValue": "WireguardKMSKeyID"
                         } ,
