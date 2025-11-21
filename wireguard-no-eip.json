@@ -3,13 +3,14 @@
     "Description": "Set up a wireguard VPN.",
     "Metadata": {},
     "Parameters": {
-        "LatestAmiId": {
-            "Description": "Grab the latest AL2 AMI",
-            "Default": "/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64",
-            "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+        "Architecture": {
+            "Type": "String",
+            "AllowedValues": ["x8664", "arm64"],
+            "Default": "x8664",
+            "Description": "CPU architecture"
         },
         "InstanceType": {
-            "Default": "t3a.nano",
+            "Default": "t4g.nano",
             "Description": "Instance type",
             "Type": "String"
         },
@@ -47,8 +48,23 @@
             "Default": "wgPublicKey"
         }
     },
-    "Mappings": {},
+    "Mappings": {
+        "InstanceTypeArchitecture": {
+            "t3.nano": { "Arch": "x86_64" },
+            "t3.micro": { "Arch": "x86_64" },
+            "t3.small": { "Arch": "x86_64" },
+            "t4g.nano": { "Arch": "arm64" },
+            "t4g.micro": { "Arch": "arm64" },
+            "t4g.small": { "Arch": "arm64" }
+        }
+    },
     "Conditions": {
+        "IsArm64": {
+            "Fn::Equals": [
+                { "Fn::FindInMap": ["InstanceTypeArchitecture", { "Ref": "InstanceType" }, "Arch"] },
+                "arm64"
+            ]
+        },
         "CreateAssociateEip": {
             "Fn::Equals": [
                 {
@@ -128,8 +144,8 @@
                                                 "Ref": "ServerTunnelSubnet"
                                             },
                                             "\n",
-                                            "PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o enX0 -j MASQUERADE\n",
-                                            "PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o enX0 -j MASQUERADE\n",
+                                            "PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o $(ip route get 8.8.8.8 | grep -oP 'dev \\K[^ ]+') -j MASQUERADE\n",
+                                            "PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o $(ip route get 8.8.8.8 | grep -oP 'dev \\K[^ ]+') -j MASQUERADE\n",
                                             "ListenPort = 51820\n",
                                             "PrivateKey = fakeServerPrivateKey\n",
                                             "SaveConfig = true\n",
@@ -553,7 +569,11 @@
             },
             "Properties": {
                 "ImageId": {
-                    "Ref": "LatestAmiId"
+                    "Fn::If": [
+                        "IsArm64",
+                        "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-arm64}}",
+                        "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64}}"
+                    ]
                 },
                 "InstanceType": {
                     "Ref": "InstanceType"

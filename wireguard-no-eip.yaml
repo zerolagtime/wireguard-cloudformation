@@ -1,0 +1,1106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Set up a wireguard VPN.
+Metadata: {}
+Parameters:
+  LatestAmiId:
+    Description: Grab the latest AL2 AMI
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+  InstanceType:
+    Default: t3a.nano
+    Description: Instance type
+    Type: String
+  ServerTunnelSubnet:
+    Default: 10.10.10.1/24
+    Description: The network available to the tunnel.
+    Type: String
+  PeerTunnelSubnet:
+    Default: 10.10.10.2/32
+    Description: The possible tunnel peers. One is the default
+    Type: String
+  VpnSecurityGroupID:
+    Description: The VPC default Security GroupID
+    Type: AWS::EC2::SecurityGroup::Id
+  AssociateEip:
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'true'
+    Description: This is to associate with an already created/exported EIP. Should
+      be true unless testing.
+    Type: String
+  PublicKey:
+    Type: String
+    Description: The (optional) public SSH key for EC2 key pair
+    Default: ''
+  PublicKeyName:
+    Type: String
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance.
+    Default: wgPublicKey
+Mappings: {}
+Conditions:
+  CreateAssociateEip:
+    Fn::Equals:
+      - Ref: AssociateEip
+      - 'true'
+  IsPublicKeyProvided:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: PublicKey
+          - ''
+Resources:
+  MyKeyPair:
+    Type: AWS::EC2::KeyPair
+    Condition: IsPublicKeyProvided
+    Properties:
+      KeyName:
+        Ref: PublicKeyName
+      PublicKeyMaterial:
+        Ref: PublicKey
+  VpnSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: VPN security group created by cloudformation
+      SecurityGroupIngress:
+        - IpProtocol: udp
+          FromPort: 51820
+          ToPort: 51820
+          CidrIp: 0.0.0.0/0
+  VpnInstance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              wireguard-tools: []
+              kernel-devel: []
+              aws-cfn-bootstrap: []
+              nftables: []
+              iptables-nft: []
+              amazon-cloudwatch-agent: []
+              cronie: []
+              python3-boto3: []
+              rsyslog: []
+              rsyslog-logrotate: []
+          files:
+            /etc/wireguard/wg0.conf:
+              content:
+                Fn::Join:
+                  - ''
+                  - - '[Interface]'
+                    - 'Address = '
+                    - Ref: ServerTunnelSubnet
+                    - ''
+                    - 'PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D
+                      FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o
+                      enX0 -j MASQUERADE'
+                    - 'PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A
+                      FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o
+                      enX0 -j MASQUERADE'
+                    - 'ListenPort = 51820'
+                    - 'PrivateKey = fakeServerPrivateKey'
+                    - 'SaveConfig = true'
+                    - ''
+                    - '[Peer]'
+                    - 'PublicKey = fakePeerPublicKey'
+                    - 'AllowedIPs = '
+                    - Ref: PeerTunnelSubnet
+                    - ''
+              mode: '000600'
+              owner: root
+              group: root
+            /tmp/wg0-client.conf:
+              content:
+                Fn::Join:
+                  - ''
+                  - - '[Interface]'
+                    - 'Address = '
+                    - Ref: PeerTunnelSubnet
+                    - ''
+                    - 'DNS = 1.1.1.1'
+                    - 'PrivateKey = fakePeerPrivateKey'
+                    - ''
+                    - '[Peer]'
+                    - 'PublicKey = fakeServerPublicKey'
+                    - 'AllowedIPs = 0.0.0.0/0'
+                    - 'Endpoint = '
+                    - Fn::ImportValue: WireguardEIPAddress
+                    - ':51820'
+              mode: '000600'
+              owner: root
+              group: root
+            /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/wg.json:
+              content:
+                Fn::Join:
+                  - ''
+                  - - '{
+
+                      '
+                    - '  "agent": {
+
+                      '
+                    - '    "metrics_collection_interval": 60,
+
+                      '
+                    - '    "run_as_user": "root"
+
+                      '
+                    - '  },
+
+                      '
+                    - '  "logs": {
+
+                      '
+                    - '    "logs_collected": {
+
+                      '
+                    - '      "files": {
+
+                      '
+                    - '        "collect_list": [
+
+                      '
+                    - '          {
+
+                      '
+                    - '            "file_path": "/var/log/syslog",
+
+                      '
+                    - '            "log_stream_name": "{instance_id}/syslog",
+
+                      '
+                    - '            "log_group_name": "WgSyslog"
+
+                      '
+                    - '          },
+
+                      '
+                    - '          {
+
+                      '
+                    - '            "file_path": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log",
+
+                      '
+                    - '            "log_group_name": "WgSyslog",
+
+                      '
+                    - '            "log_stream_name": "{instance_id}/syslog",
+
+                      '
+                    - '            "timezone": "UTC"
+
+                      '
+                    - '          }
+
+                      '
+                    - '        ]
+
+                      '
+                    - '      }
+
+                      '
+                    - '    }
+
+                      '
+                    - '  },
+
+                      '
+                    - '  "metrics": {
+
+                      '
+                    - '    "namespace": "Production/WireGuard",
+
+                      '
+                    - '    "metrics_collected": {
+
+                      '
+                    - '      "net": {
+
+                      '
+                    - '        "measurement": [
+
+                      '
+                    - '          "bytes_sent",
+
+                      '
+                    - '          "bytes_recv"
+
+                      '
+                    - '        ],
+
+                      '
+                    - '        "metrics_collection_interval": 60,
+
+                      '
+                    - '        "resources": [
+
+                      '
+                    - '          "wg0"
+
+                      '
+                    - '        ]
+
+                      '
+                    - '      }
+
+                      '
+                    - '    },
+
+                      '
+                    - '    "append_dimensions": {
+
+                      '
+                    - '      "InstanceId": "${aws:InstanceId}",
+
+                      '
+                    - '      "InstanceType": "${aws:InstanceType}"
+
+                      '
+                    - '    }
+
+                      '
+                    - '  }
+
+                      '
+                    - '}
+
+                      '
+              mode: '000644'
+              owner: root
+              group: root
+            /usr/local/bin/wireguard-cloudwatch-metrics.py:
+              content:
+                Fn::Join:
+                  - ''
+                  - - '#!/bin/env python3
+
+                      '
+                    - 'import re
+
+                      '
+                    - 'import subprocess
+
+                      '
+                    - '
+
+                      '
+                    - 'import boto3
+
+                      '
+                    - 'import requests
+
+                      '
+                    - '
+
+                      '
+                    - '# Define the CloudWatch namespace
+
+                      '
+                    - 'CLOUDWATCH_NAMESPACE = ''Production/WireGuard''
+
+                      '
+                    - '
+
+                      '
+                    - 'def get_instance_region():
+
+                      '
+                    - '    """Retrieve the instance region using IMDSv2."""
+
+                      '
+                    - '    token_url = "http://169.254.169.254/latest/api/token"
+
+                      '
+                    - '    metadata_url = "http://169.254.169.254/latest/meta-data/placement/region"
+
+                      '
+                    - '
+
+                      '
+                    - '    # Step 1: Retrieve the token
+
+                      '
+                    - '    try:
+
+                      '
+                    - '        # Fetch the token
+
+                      '
+                    - '        token_response = requests.put(token_url, headers={"X-aws-ec2-metadata-token-ttl-seconds":
+                      "21600"})
+
+                      '
+                    - '        token_response.raise_for_status()  # Raise an error
+                      for bad responses
+
+                      '
+                    - '        token = token_response.text
+
+                      '
+                    - '    except requests.RequestException as e:
+
+                      '
+                    - '        print(f"Error retrieving token for IMDS: {e}")
+
+                      '
+                    - '        return None
+
+                      '
+                    - '
+
+                      '
+                    - '    # Step 2: Use the token to access the metadata
+
+                      '
+                    - '    try:
+
+                      '
+                    - '        response = requests.get(metadata_url, headers={"X-aws-ec2-metadata-token":
+                      token})
+
+                      '
+                    - '        response.raise_for_status()  # Raise an error for bad
+                      responses
+
+                      '
+                    - '        region = response.text
+
+                      '
+                    - '        return region
+
+                      '
+                    - '    except requests.RequestException as e:
+
+                      '
+                    - '        print(f"Error retrieving instance region: {e}")
+
+                      '
+                    - '        return None
+
+                      '
+                    - '
+
+                      '
+                    - 'def clean_peer_id(peer_id):
+
+                      '
+                    - '    return peer_id
+
+                      '
+                    - '    # Replace any non-alphanumeric character with ''Z'' and
+                      make uppercase
+
+                      '
+                    - '    #return re.sub(r''[^a-zA-Z0-9]'', ''Z'', peer_id).upper()
+
+                      '
+                    - '
+
+                      '
+                    - 'def get_wireguard_metrics():
+
+                      '
+                    - '    result = subprocess.run([''wg'', ''show'', ''all'', ''dump''],
+                      stdout=subprocess.PIPE, text=True)
+
+                      '
+                    - '    metrics = []
+
+                      '
+                    - '
+
+                      '
+                    - '    for rownum, line in enumerate(result.stdout.strip().splitlines()):
+
+                      '
+                    - "        columns = line.split('\t')\n"
+                    - '        # Skip the first line and adjust the columns as per
+                      your requirements
+
+                      '
+                    - '        if len(columns) >= 5 and rownum > 0:
+
+                      '
+                    - '            # Subsequent  lines are printed for each peer and
+                      contain
+
+                      '
+                    - '            #  in order separated by tab: interface[0],
+
+                      '
+                    - '            #  public-key[1], preshared-key[2], endpoint[3],
+
+                      '
+                    - "            #  allowed-ips[4], latest-handshake[5], \n"
+                    - '            #  transfer-rx[6], transfer-tx[7], persistent-keepalive[7]
+
+                      '
+                    - '            del columns[4]  # deletes allowed-ips
+
+                      '
+                    - '            del columns[3]  # deletes endpoint
+
+                      '
+                    - '            del columns[2]  # deletes preshared-key
+
+                      '
+                    - "            \n"
+                    - '            # Cleaned peer ID
+
+                      '
+                    - '            peer_id = clean_peer_id(columns[1])[:16]
+
+                      '
+                    - '            last_handshake, received_bytes, transmitted_bytes
+                      = columns[1:4]
+
+                      '
+                    - "            \n"
+                    - '            # Create metric data to send
+
+                      '
+                    - '            metrics.append({
+
+                      '
+                    - '                ''MetricName'': ''LastHandshake'',
+
+                      '
+                    - "                'Value': float(last_handshake) if last_handshake.isdigit()\
+                      \ else 0,  \n"
+                    - '                ''Unit'': ''Seconds'',
+
+                      '
+                    - '                ''Dimensions'': [{''Name'': ''ClientID'', ''Value'':
+                      peer_id}]
+
+                      '
+                    - '            })
+
+                      '
+                    - '            metrics.append({
+
+                      '
+                    - '                ''MetricName'': ''ReceivedBytes'',
+
+                      '
+                    - '                ''Value'': float(received_bytes) if received_bytes.isdigit()
+                      else 0,
+
+                      '
+                    - '                ''Unit'': ''Bytes'',
+
+                      '
+                    - '                ''Dimensions'': [{''Name'': ''ClientID'', ''Value'':
+                      peer_id}]
+
+                      '
+                    - '            })
+
+                      '
+                    - '            metrics.append({
+
+                      '
+                    - '                ''MetricName'': ''TransmittedBytes'',
+
+                      '
+                    - '                ''Value'': float(transmitted_bytes) if transmitted_bytes.isdigit()
+                      else 0,
+
+                      '
+                    - '                ''Unit'': ''Bytes'',
+
+                      '
+                    - '                ''Dimensions'': [{''Name'': ''ClientID'', ''Value'':
+                      peer_id}]
+
+                      '
+                    - '            })
+
+                      '
+                    - '
+
+                      '
+                    - '    return metrics
+
+                      '
+                    - '
+
+                      '
+                    - 'def send_metrics_to_cloudwatch(metrics, region):
+
+                      '
+                    - '    # Create the CloudWatch client with the specified region
+
+                      '
+                    - '    cloudwatch = boto3.client(''cloudwatch'', region_name=region)
+
+                      '
+                    - '
+
+                      '
+                    - '    # Batch metrics in groups of 20 (max allowed per PutMetricData
+                      call)
+
+                      '
+                    - '    for i in range(0, len(metrics), 20):
+
+                      '
+                    - '        cloudwatch.put_metric_data(
+
+                      '
+                    - '            Namespace=CLOUDWATCH_NAMESPACE,
+
+                      '
+                    - '            MetricData=metrics[i:i+20]  # Send a chunk of up
+                      to 20 metrics
+
+                      '
+                    - '        )
+
+                      '
+                    - '
+
+                      '
+                    - 'if __name__ == "__main__":
+
+                      '
+                    - '    region = get_instance_region()
+
+                      '
+                    - '    if region:  # Proceed only if region is successfully obtained
+
+                      '
+                    - '        metrics = get_wireguard_metrics()
+
+                      '
+                    - '        send_metrics_to_cloudwatch(metrics, region)
+
+                      '
+                    - '    else:
+
+                      '
+                    - '        print("Failed to retrieve the instance region, exiting.")
+
+                      '
+              mode: '000700'
+              owner: root
+              group: root
+            /etc/nftables-ignore.conf:
+              content:
+                Fn::Join:
+                  - ''
+                  - - 'table inet filter {
+
+                      '
+                    - '    chain input {
+
+                      '
+                    - '        type filter hook input priority 0; policy drop;  #
+                      Default policy to drop
+
+                      '
+                    - '        # Allow established and related connections
+
+                      '
+                    - '        ct state established,related accept
+
+                      '
+                    - '        # Allow localhost traffic
+
+                      '
+                    - '        ip saddr 127.0.0.1 accept
+
+                      '
+                    - '        # Log all incoming traffic
+
+                      '
+                    - '        log prefix "IN:" group 0
+
+                      '
+                    - '        # Allow WireGuard traffic on UDP port 51820
+
+                      '
+                    - '        udp dport 51820 accept
+
+                      '
+                    - '        # Allow ICMP (ping) for troubleshooting
+
+                      '
+                    - '        icmp type echo-request accept
+
+                      '
+                    - '        icmp type echo-reply accept
+
+                      '
+                    - '        # Log and drop all other packets
+
+                      '
+                    - '        log prefix "DROP: " drop
+
+                      '
+                    - '        # Reject all other connections with an ICMP port-unreachable
+                      message
+
+                      '
+                    - '        reject with icmp type port-unreachable
+
+                      '
+                    - '    }
+
+                      '
+                    - '    chain forward {
+
+                      '
+                    - '        type filter hook forward priority 0; policy drop;  #
+                      Default policy to drop
+
+                      '
+                    - '        # Allow forwarding of WireGuard packets
+
+                      '
+                    - '        iifname "wg0" accept
+
+                      '
+                    - '        oifname "wg0" accept
+
+                      '
+                    - '    }
+
+                      '
+                    - '    chain output {
+
+                      '
+                    - '        type filter hook output priority 0; policy accept;  #
+                      Allow all outgoing connections by default
+
+                      '
+                    - '        # Log all outgoing traffic
+
+                      '
+                    - '        log prefix "OUT:" group 0
+
+                      '
+                    - '    }
+
+                      '
+                    - '}
+
+                      '
+              mode: '000600'
+              owner: root
+              group: root
+            /etc/systemd/system/wg_metrics.service:
+              content:
+                Fn::Join:
+                  - ''
+                  - - '[Unit]
+
+                      '
+                    - 'Description=WireGuard Metrics
+
+
+                      '
+                    - '[Service]
+
+                      '
+                    - 'ExecStart=/usr/bin/python3 /usr/local/bin/wireguard-cloudwatch-metrics.py
+
+                      '
+                    - 'WorkingDirectory=/root
+
+                      '
+                    - 'StandardOutput=journal
+
+                      '
+                    - 'StandardError=journal
+
+                      '
+                    - 'User=root
+
+                      '
+                    - 'Group=root
+
+
+                      '
+                    - '[Install]
+
+                      '
+                    - 'WantedBy=multi-user.target
+
+                      '
+            /etc/systemd/system/wg_metrics.timer:
+              content:
+                Fn::Join:
+                  - ''
+                  - - '[Unit]
+
+                      '
+                    - 'Description=WireGuard Metric Timer
+
+
+                      '
+                    - '[Timer]
+
+                      '
+                    - 'OnActiveSec=1min
+
+                      '
+                    - 'OnUnitActiveSec=1min
+
+                      '
+                    - 'Unit=wg_metrics.service
+
+
+                      '
+                    - '[Install]
+
+                      '
+                    - 'WantedBy=timers.target
+
+                      '
+            /etc/systemd/system/cfn-hup.service:
+              content:
+                Fn::Join:
+                  - ''
+                  - - '[Unit]
+
+                      '
+                    - 'Description=cfn-hup daemon
+
+                      '
+                    - '[Service]
+
+                      '
+                    - 'ExecStart=/usr/bin/cfn-hup -v
+
+                      '
+                    - 'PIDFile=/var/run/cfn-hup.pid
+
+                      '
+                    - '[Install]
+
+                      '
+                    - 'WantedBy=multi-user.target
+
+                      '
+            /usr/local/bin/01-journald_syslog.sh:
+              content:
+                Fn::Join:
+                  - ''
+                  - - '#!/bin/sh
+
+                      '
+                    - '# Configure rsyslog to receive logs from journald
+
+                      '
+                    - 'echo ''*.* /var/log/syslog'' >> /etc/rsyslog.conf
+
+                      '
+                    - 'systemctl restart rsyslog
+
+                      '
+              mode: '000700'
+              owner: root
+              group: root
+            /usr/local/bin/02-wireguard_setup.sh:
+              content:
+                Fn::Join:
+                  - ''
+                  - - '#!/bin/sh
+
+                      '
+                    - 'echo "INFO: Enabling IPv4/IPv4 forwarding"
+
+                      '
+                    - 'echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+
+                      '
+                    - 'echo "net.ipv6.conf.all.forwarding = 1" >> /etc/sysctl.conf
+
+                      '
+                    - 'echo "install wg /sbin/modprobe --ignore-install wg" > /etc/modprobe.d/wg.conf
+
+                      '
+                    - 'sysctl -p
+
+                      '
+                    - 'echo "INFO: Generating keys and puting them in configs"
+
+                      '
+                    - 'SERVER_PRIVATE_KEY=$(wg genkey)
+
+                      '
+                    - 'SERVER_PUBLIC_KEY=$(echo $SERVER_PRIVATE_KEY | wg pubkey)
+
+                      '
+                    - 'sed -i "s|fakeServerPrivateKey|$SERVER_PRIVATE_KEY|" /etc/wireguard/wg0.conf
+
+                      '
+                    - 'sed -i "s|fakeServerPublicKey|$SERVER_PUBLIC_KEY|" /tmp/wg0-client.conf
+
+                      '
+                    - 'CLIENT_PRIVATE_KEY=$(wg genkey)
+
+                      '
+                    - 'CLIENT_PUBLIC_KEY=$(echo $CLIENT_PRIVATE_KEY | wg pubkey)
+
+                      '
+                    - 'sed -i "s|fakePeerPublicKey|$CLIENT_PUBLIC_KEY|" /etc/wireguard/wg0.conf
+
+                      '
+                    - 'sed -i "s|fakePeerPrivateKey|$CLIENT_PRIVATE_KEY|" /tmp/wg0-client.conf
+
+                      '
+                    - '
+
+                      '
+                    - 'echo "INFO: Creating the AWS Parameter alias/aws/ssm"
+
+                      '
+                    - aws ssm put-parameter
+                    - '    --name "ClientConfig"'
+                    - '    --type "SecureString"'
+                    - '    --key-id alias/aws/ssm'
+                    - '    --overwrite'
+                    - '    --region '
+                    - Ref: AWS::Region
+                    - "    --value \"$(cat /tmp/wg0-client.conf)\" \n"
+                    - 'echo "INFO: Deleting client WireGuard keys from the system"
+
+                      '
+                    - '# Erase init log to remove key, may need to comment out to
+                      trouble shoot
+
+                      '
+                    - 'rm -f /tmp/wg0-client.conf
+
+                      '
+              mode: '000700'
+              owner: root
+              group: root
+          commands:
+            01_journald_to_syslog:
+              command: /usr/local/bin/01-journald_syslog.sh
+            02_stop_agent:
+              command: systemctl disable --now amazon-cloudwatch-agent
+            03_wireguard_setup:
+              command: /usr/local/bin/02-wireguard_setup.sh
+            07_wg_logging:
+              command: echo module wireguard +p > /sys/kernel/debug/dynamic_debug/control
+          services:
+            systemd:
+              amazon-cloudwatch-agent:
+                enabled: 'false'
+                ensureRunning: 'true'
+                files:
+                  - /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/wg.json
+                packages:
+                  yum:
+                    - amazon-cloudwatch-agent
+              wg-quick@wg0:
+                enabled: 'true'
+                ensureRunning: 'true'
+                files:
+                  - /etc/wireguard/wg0.conf
+              rsyslog:
+                enabled: 'true'
+                ensureRunning: 'true'
+                files:
+                  - /etc/rsyslog.conf
+              wg_metrics.service:
+                enabled: 'false'
+                ensureRunning: 'true'
+                sources:
+                  - /usr/local/bin/wireguard-cloudwatch-metrics.py
+              wg_metrics.timer:
+                enabled: 'false'
+                ensureRunning: 'true'
+              cfn-hup:
+                enabled: 'true'
+                ensureRunning: 'true'
+    Properties:
+      ImageId:
+        Ref: LatestAmiId
+      InstanceType:
+        Ref: InstanceType
+      KeyName:
+        Fn::If:
+          - IsPublicKeyProvided
+          - Ref: PublicKeyName
+          - Ref: AWS::NoValue
+      IamInstanceProfile:
+        Ref: WgEc2IamProfile
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: '30'
+            KmsKeyId:
+              Fn::ImportValue: WireguardKMSKeyID
+            Encrypted: true
+      UserData:
+        Fn::Base64:
+          Fn::Join:
+            - ''
+            - - '#!/bin/bash -e
+
+                '
+              - 'echo "INFO: Getting system updates"
+
+                '
+              - 'dnf update -y -qq
+
+                '
+              - 'echo "Starting CloudInit"
+
+                '
+              - 'dnf install -y -qqq aws-cfn-bootstrap
+
+                '
+              - '/opt/aws/bin/cfn-init -v '
+              - '         --stack '
+              - Ref: AWS::StackName
+              - '         --resource VpnInstance '
+              - '         --region '
+              - Ref: AWS::Region
+              - '
+
+                '
+              - 'echo "INFO: CloudInit setup completed"
+
+                '
+              - 'echo "INFO: Enabling wireguard on restart"
+
+                '
+              - 'sudo systemctl enable wg-quick@wg0.service
+
+                '
+              - 'cat /dev/null > /var/log/cloud-init-output.log
+
+                '
+              - 'echo "INFO: Reboot needed to force kernel header to take effect"
+
+                '
+              - 'reboot
+
+                '
+      SecurityGroupIds:
+        - Ref: VpnSecurityGroupID
+      SecurityGroups:
+        - Ref: VpnSecurityGroup
+      Tags:
+        - Key: project
+          Value: wireguard
+        - Key: Name
+          Value: wg1
+  WireguardVpnEipAsso:
+    Type: AWS::EC2::EIPAssociation
+    Condition: CreateAssociateEip
+    Properties:
+      AllocationId:
+        Fn::ImportValue: WireguardEIPAllocationId
+      InstanceId:
+        Ref: VpnInstance
+  WgEc2IamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+  WgEc2IamProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - Ref: WgEc2IamRole
+  WgEc2IamPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - ssm:PutParameter
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - kms:Encrypt
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource:
+              - Fn::Sub: arn:${AWS::Partition}:log:${AWS::Region}:${AWS::AccountId}:log-group:WgSyslog:*
+          - Effect: Allow
+            Action:
+              - cloudwatch:PutMetricData
+            Resource: '*'
+      PolicyName:
+        Fn::Join:
+          - '-'
+          - - Ref: AWS::StackName
+            - Ref: AWS::Region
+      Roles:
+        - Ref: WgEc2IamRole
+  SyslogLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: WgSyslog
+      RetentionInDays: 3
+      KmsKeyId:
+        Fn::ImportValue: WireguardKMSKeyID
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - Ref: EC2Role
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWatchAgentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:WgSyslog:*
+Outputs:
+  VpnInstanceId:
+    Description: ID of VPN Instance
+    Value:
+      Ref: VpnInstance
+  WgClientConfig:
+    Description: Click to access Wireguard Client Config
+    Value:
+      Fn::Join:
+        - ''
+        - - https://
+          - Ref: AWS::Region
+          - .console.aws.amazon.com/systems-manager/parameters/ClientConfig/description?region=
+          - Ref: AWS::Region
