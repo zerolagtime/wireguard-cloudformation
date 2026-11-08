@@ -5,12 +5,12 @@
     "Parameters": {
         "Architecture": {
             "Type": "String",
-            "AllowedValues": ["x8664", "arm64"],
-            "Default": "x8664",
+            "AllowedValues": ["x86_64", "arm64"],
+            "Default": "x86_64",
             "Description": "CPU architecture"
         },
         "InstanceType": {
-            "Default": "t4g.nano",
+            "Default": "t4g.micro",
             "Description": "Instance type",
             "Type": "String"
         },
@@ -50,9 +50,9 @@
     },
     "Mappings": {
         "InstanceTypeArchitecture": {
-            "t3.nano": { "Arch": "x86_64" },
-            "t3.micro": { "Arch": "x86_64" },
-            "t3.small": { "Arch": "x86_64" },
+            "t3a.nano": { "Arch": "x86_64" },
+            "t3a.micro": { "Arch": "x86_64" },
+            "t3a.small": { "Arch": "x86_64" },
             "t4g.nano": { "Arch": "arm64" },
             "t4g.micro": { "Arch": "arm64" },
             "t4g.small": { "Arch": "arm64" }
